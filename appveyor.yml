@@ -1,4 +1,6 @@
 install:
+  - choco install -y ghc cabal
+  - refreshenv
   - set BUILD_DIR=$HOME/dist
   - cabal --version
   - ghc --version
