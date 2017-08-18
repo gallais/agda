@@ -1,5 +1,18 @@
+environment:
+
+ matrix:
+  - GHC_VER: 8.2.1
+    CABAL_VER: 2.0
+  - GHC_VER: 8.0.2
+    CABAL_VER: 1.24
+  - GHC_VER: 7.10.3
+    CABAL_VER: 1.22
+  - GHC_VER: 7.8.4
+    CABAL_VER: 1.18
+
 install:
-  - choco install -y ghc cabal
+  - choco install -y ghc --version %GHC_VER%
+  - choco install -y cabal --version %CABAL_VER%
   - refreshenv
   - set BUILD_DIR=$HOME/dist
   - cabal --version
