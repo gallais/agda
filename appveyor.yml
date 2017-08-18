@@ -16,8 +16,8 @@ matrix:
   fast_finish: true
 
 install:
-  - choco install -y cabal --version %CABAL_VER%
-  - choco install -y ghc --version %GHC_VER%
+  - appveyor-retry choco install -y cabal --version %CABAL_VER%
+  - appveyor-retry choco install -y ghc --version %GHC_VER%
   - refreshenv
   - set BUILD_DIR=$HOME/dist
   - cabal --version
