@@ -1,0 +1,9 @@
+install:
+  - set BUILD_DIR=$HOME/dist
+  - cabal --version
+  - ghc --version
+  - cabal update
+  - cabal install cpphs-1.20.8
+  - make CABAL_OPTS='--only-dependencies --force-reinstalls' install-bin
+  - make BUILD_DIR=$BUILD_DIR CABAL_OPTS=-v2 install-bin
+  - make up-to-date-std-lib
