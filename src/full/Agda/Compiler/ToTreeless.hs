@@ -285,7 +285,7 @@ updateCatchAll Nothing cont = cont
 updateCatchAll (Just cc) cont = do
   def <- casetree cc
   local (\e -> e { ccCatchAll = Just 0, ccCxt = shift 1 (ccCxt e) }) $ do
-    C.mkLet def <$> cont
+    C.mkTLet C.noNHint def <$> cont
 
 -- | Shrinks or grows the context to the given size.
 -- Does not update the catchAll expression, the catchAll expression
@@ -300,12 +300,8 @@ withContextSize n cont = do
       C.mkTApp <$> cont <*> pure [C.TVar i | i <- reverse [0..(-diff - 1)]]
   else do
     local (\e -> e { ccCxt = [0..(diff - 1)] ++ shift diff (ccCxt e)}) $ do
-      createLambdas diff <$> do
-        cont
-  where createLambdas :: Int -> C.TTerm -> C.TTerm
-        createLambdas 0 cont' = cont'
-        createLambdas i cont' | i > 0 = C.TLam (createLambdas (i - 1) cont')
-        createLambdas _ _ = __IMPOSSIBLE__
+      if diff < 0 then __IMPOSSIBLE__
+      else C.mkTLams (replicate diff C.noNHint) <$> cont
 
 -- | Adds lambdas until the context has at least the given size.
 -- Updates the catchAll expression to take the additional lambdas into account.
@@ -326,7 +322,7 @@ lambdasUpTo n cont = do
           local (\e -> e { ccCatchAll = Just 0
                          , ccCxt = shift 1 (ccCxt e)}) $ do
             let catchAllArgs = map C.TVar $ reverse [0..(diff - 1)]
-            C.mkLet (C.mkTApp (C.TVar $ catchAll' + diff) catchAllArgs)
+            C.mkTLet C.noNHint (C.mkTApp (C.TVar $ catchAll' + diff) catchAllArgs)
               <$> cont
         Nothing -> cont
 
@@ -334,7 +330,7 @@ conAlts :: Int -> Map QName (CC.WithArity CC.CompiledClauses) -> CC [C.TAlt]
 conAlts x br = forM (Map.toList br) $ \ (c, CC.WithArity n cc) -> do
   c' <- lift $ canonicalName c
   replaceVar x n $ do
-    branch (C.TACon c' n) cc
+    branch (C.TACon c' n (replicate n C.noNHint)) cc
 
 litAlts :: Int -> Map Literal CC.CompiledClauses -> CC [C.TAlt]
 litAlts x br = forM (Map.toList br) $ \ (l, cc) ->
@@ -393,7 +389,7 @@ substTerm term = normaliseStatic term >>= \ term ->
       let args = fromMaybe __IMPOSSIBLE__ $ I.allApplyElims es
       C.mkTApp (C.TVar ind') <$> substArgs args
     I.Lam _ ab ->
-      C.TLam <$>
+      C.TLam (C.mkNHint $ I.absName ab) <$>
         local (\e -> e { ccCxt = 0 : (shift 1 $ ccCxt e) })
           (substTerm $ I.unAbs ab)
     I.Lit l -> return $ C.TLit l

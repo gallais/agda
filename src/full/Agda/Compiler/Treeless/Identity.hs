@@ -20,16 +20,16 @@ detectIdentityFunctions q t =
     Just (n, k) -> do
       markInline q
       def <- theDef <$> getConstInfo q
-      return $ mkTLam n $ TVar k
+      return $ mkTLams n $ TVar k
 
 -- If isIdentity f t = Just (n, k) then
 -- f = t is equivalent to f = λ xn₋₁ .. x₀ → xk
-isIdentity :: QName -> TTerm -> Maybe (Int, Int)
+isIdentity :: QName -> TTerm -> Maybe ([NHint], Int)
 isIdentity q t =
   trivialIdentity q t <|> recursiveIdentity q t
 
 -- Does the function recurse on an argument, rebuilding the same value again.
-recursiveIdentity :: QName -> TTerm -> Maybe (Int, Int)
+recursiveIdentity :: QName -> TTerm -> Maybe ([NHint], Int)
 recursiveIdentity q t =
   case b of
     TCase x _ (TError TUnreachable) bs
@@ -40,7 +40,7 @@ recursiveIdentity q t =
 
     identityBranch _ TALit{}   = False
     identityBranch _ TAGuard{} = False
-    identityBranch x (TACon c a b) =
+    identityBranch x (TACon c a _ b) =
       case b of
         TApp (TCon c') args -> c == c' && identityArgs a args
         TVar y              -> y == x + a  -- from @-pattern recovery
@@ -53,7 +53,8 @@ recursiveIdentity q t =
 
         match TErased              _  = True
         match (TVar z)             y = z == y
-        match (TApp (TDef f) args) y = f == q && length args == n && match (proj x args) y
+        match (TApp (TDef f) args) y = f == q && length args == length n
+                                       && match (proj x args) y
         match _                    _ = False
 
 data IdentityIn = IdIn [Int]
@@ -66,7 +67,7 @@ instance Semigroup IdentityIn where
 
 -- Does the function always return one of its arguments unchanged (possibly
 -- through recursive calls).
-trivialIdentity :: QName -> TTerm -> Maybe (Int, Int)
+trivialIdentity :: QName -> TTerm -> Maybe ([NHint], Int)
 trivialIdentity q t =
   case go 0 b of
     IdIn [x]     -> pure (n, x)
@@ -80,7 +81,7 @@ trivialIdentity q t =
       case t of
         TVar x | x >= k    -> IdIn [x - k]
                | otherwise -> notId
-        TLet _ b           -> go (k + 1) b
+        TLet _ _ b         -> go (k + 1) b
         TCase _ _ d bs     -> sconcat (go k d :| map (goAlt k) bs)
         TApp (TDef f) args
           | f == q         -> IdIn [ y | (TVar x, y) <- zip (reverse args) [0..], y + k == x ]
@@ -97,6 +98,6 @@ trivialIdentity q t =
         TError{}           -> notId
 
     goAlt :: Int -> TAlt -> IdentityIn
-    goAlt k (TALit _ b)   = go k b
-    goAlt k (TAGuard _ b) = go k b
-    goAlt k (TACon _ n b) = go (k + n) b
+    goAlt k (TALit _ b)     = go k b
+    goAlt k (TAGuard _ b)   = go k b
+    goAlt k (TACon _ n _ b) = go (k + n) b

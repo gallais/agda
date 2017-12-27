@@ -13,8 +13,8 @@ addCoercions :: TTerm -> TCM TTerm
 addCoercions = coerceTop
   where
     -- Don't coerce top-level lambdas.
-    coerceTop (TLam b) = TLam <$> coerceTop b
-    coerceTop t        = coerce t
+    coerceTop (TLam nh b) = TLam nh <$> coerceTop b
+    coerceTop t           = coerce t
 
     -- Coerce a term `t`. The result (when translated to Haskell) has type
     -- `forall a. a`.
@@ -35,8 +35,8 @@ addCoercions = coerceTop
           if length vs > ar
             then TApp (TCoerce f) <$> mapM softCoerce vs
             else TCoerce . TApp f <$> mapM coerce vs
-        TLam b         -> TCoerce . TLam <$> softCoerce b
-        TLet e b       -> TLet <$> softCoerce e <*> coerce b
+        TLam nh b      -> TCoerce . TLam nh <$> softCoerce b
+        TLet nh e b    -> TLet nh <$> softCoerce e <*> coerce b
         TCase x t d bs -> TCase x t <$> coerce d <*> mapM coerceAlt bs
 
     coerceAlt a = coerce (aBody a) <&> \ b -> a { aBody = b }
@@ -60,12 +60,12 @@ addCoercions = coerceTop
           if length vs > ar
             then TApp (TCoerce f) <$> mapM softCoerce vs
             else TApp f <$> mapM coerce vs
-        TLam b         -> TLam <$> softCoerce b
-        TLet e b       -> TLet <$> softCoerce e <*> softCoerce b
+        TLam nh b      -> TLam nh <$> softCoerce b
+        TLet nh e b    -> TLet nh <$> softCoerce e <*> softCoerce b
         TCase x t d bs -> TCase x t <$> coerce d <*> mapM coerceAlt bs
 
 funArity :: TTerm -> TCM Int
-funArity (TDef q)  = maybe 0 (fst . tLamView) <$> getTreeless q
+funArity (TDef q)  = maybe 0 (length . fst . tLamView) <$> getTreeless q
 funArity (TCon q)  = length . filter not <$> getErasedConArgs q
 funArity (TPrim _) = return 3 -- max arity of any primitive
 funArity _         = return 0

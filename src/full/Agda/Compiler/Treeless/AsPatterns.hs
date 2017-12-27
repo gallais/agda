@@ -56,26 +56,28 @@ recover t =
       f  <- recover f
       vs <- mapM recover vs
       tApp f vs
-    TLam b -> TLam <$> underBinds 1 (recover b)
-    TCon{} -> tApp t []   -- need to recover nullary constructors as well (to make deep @-patterns work)
-    TLet v b -> TLet <$> recover v <*> underBinds 1 (recover b)
+    TLam nh b       -> TLam nh <$> underBinds 1 (recover b)
+    TCon{}          -> tApp t []   -- need to recover nullary constructors as well (to make deep @-patterns work)
+    TLet nh v b     -> TLet nh <$> recover v <*> underBinds 1 (recover b)
     TCase x ct d bs -> TCase x ct <$> recover d <*> mapM (recoverAlt x) bs
-    TCoerce t -> TCoerce <$> recover t
-    TLit{}    -> pure t
-    TVar{}    -> pure t
-    TPrim{}   -> pure t
-    TDef{}    -> pure t
-    TUnit{}   -> pure t
-    TSort{}   -> pure t
-    TErased{} -> pure t
-    TError{}  -> pure t
+    TCoerce t       -> TCoerce <$> recover t
+    TLit{}          -> pure t
+    TVar{}          -> pure t
+    TPrim{}         -> pure t
+    TDef{}          -> pure t
+    TUnit{}         -> pure t
+    TSort{}         -> pure t
+    TErased{}       -> pure t
+    TError{}        -> pure t
 
 recoverAlt :: Int -> TAlt -> S TAlt
 recoverAlt x b =
   case b of
-    TACon c n b -> TACon c n <$> underBinds n (bindAsPattern (AsPat (x + n) c [n - 1, n - 2..0]) $ recover b)
-    TAGuard g b -> TAGuard <$> recover g <*> recover b
-    TALit l b   -> TALit l <$> recover b
+    TACon c n nhs b -> TACon c n nhs
+                   <$> underBinds n (bindAsPattern (AsPat (x + n) c [n - 1, n - 2..0])
+                                    $ recover b)
+    TAGuard g b   -> TAGuard <$> recover g <*> recover b
+    TALit l b     -> TALit l <$> recover b
 
 tApp :: TTerm -> [TTerm] -> S TTerm
 tApp (TCon c) vs = lookupAsPattern c vs

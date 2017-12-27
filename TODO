@@ -1,0 +1,3 @@
+Fix equalTerms so that it ignores name hints
+
+Compiler.MAlonzo.Compiler: patch intros so that is uses the hints

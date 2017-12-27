@@ -48,9 +48,9 @@ transform kit = tr
       TCase sc t@CaseInfo{caseType = CTData dt} def alts -> TCase sc t (tr def) (map trAlt alts)
         where
           trAlt a = case a of
-            TAGuard g b -> TAGuard (tr g) (tr b)
-            TACon q a b -> TACon q a (tr b)
-            TALit l b   -> TALit l (tr b)
+            TAGuard g b   -> TAGuard (tr g) (tr b)
+            TACon q n a b -> TACon q n a (tr b)
+            TALit l b     -> TALit l (tr b)
       TCase _ _ _ _ -> __IMPOSSIBLE__
 
       TVar{}    -> t
@@ -63,10 +63,10 @@ transform kit = tr
       TErased{} -> t
       TError{}  -> t
 
-      TCoerce a               -> TCoerce (tr a)
-      TLam b                  -> TLam (tr b)
-      TApp a bs               -> TApp (tr a) (map tr bs)
-      TLet e b                -> TLet (tr e) (tr b)
+      TCoerce a   -> TCoerce (tr a)
+      TLam nh b   -> TLam nh (tr b)
+      TApp a bs   -> TApp (tr a) (map tr bs)
+      TLet nh e b -> TLet nh (tr e) (tr b)
 
     isCaseOn (CTData dt) xs = dt `elem` catMaybes (map ($ kit) xs)
     isCaseOn _ _ = False

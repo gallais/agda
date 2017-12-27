@@ -32,16 +32,16 @@ normalizeNames = tr
       TSort{}   -> done
       TErased{} -> done
       TError{}  -> done
-      TLam b                  -> TLam <$> tr b
-      TApp a bs               -> TApp <$> tr a <*> mapM tr bs
-      TLet e b                -> TLet <$> tr e <*> tr b
-      TCase sc t def alts     -> TCase sc t <$> tr def <*> mapM trAlt alts
-      TCoerce a               -> TCoerce <$> tr a
+      TLam nh b           -> TLam nh <$> tr b
+      TApp a bs           -> TApp <$> tr a <*> mapM tr bs
+      TLet nh e b         -> TLet nh <$> tr e <*> tr b
+      TCase sc t def alts -> TCase sc t <$> tr def <*> mapM trAlt alts
+      TCoerce a           -> TCoerce <$> tr a
       where
         done :: TCM TTerm
         done = return t
 
     trAlt a = case a of
-      TAGuard g b -> TAGuard <$> tr g <*> tr b
-      TACon q a b -> TACon q a <$> tr b
-      TALit l b   -> TALit l <$> tr b
+      TAGuard g b   -> TAGuard <$> tr g <*> tr b
+      TACon q a n b -> TACon q a n <$> tr b
+      TALit l b     -> TALit l <$> tr b

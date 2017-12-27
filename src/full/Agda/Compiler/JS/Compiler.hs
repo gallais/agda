@@ -376,9 +376,9 @@ compileTerm' kit t = go t
           [(flatName, PlainJS evalThunk)
           ,(MemberId "__flat_helper", Lambda 0 x)]
       T.TApp t xs -> curriedApply <$> go t <*> mapM go xs
-      T.TLam t -> Lambda 1 <$> go t
+      T.TLam _ t -> Lambda 1 <$> go t
       -- TODO This is not a lazy let, but it should be...
-      T.TLet t e -> apply <$> (Lambda 1 <$> go e) <*> traverse go [t]
+      T.TLet _ t e -> apply <$> (Lambda 1 <$> go e) <*> traverse go [t]
       T.TLit l -> return $ literal l
       T.TCon q -> do
         d <- getConstInfo q
@@ -440,7 +440,7 @@ compilePrim p =
 
 compileAlt :: T.TAlt -> TCM (MemberId, Exp)
 compileAlt a = case a of
-  T.TACon con ar body -> do
+  T.TACon con ar _ body -> do
     memId <- visitorName con
     body <- Lambda ar <$> compileTerm body
     return (memId, body)

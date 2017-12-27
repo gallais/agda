@@ -18,20 +18,22 @@ data PEnv = PEnv { pPrec :: Int
 
 type P = Reader PEnv
 
-withName :: (String -> P a) -> P a
-withName k = withNames 1 $ \[x] -> k x
+withName :: NHint -> (String -> P a) -> P a
+withName nh k = withNames [nh] $ \[x] -> k x
 
-withNames :: Int -> ([String] -> P a) -> P a
-withNames n k = do
+withNames :: [NHint] -> ([String] -> P a) -> P a
+withNames nhs k = do
+  let n = length nhs
   (xs, ys) <- asks $ splitAt n . pFresh
   local (\ e -> e { pFresh = ys }) (k xs)
 
 -- | Don't generate fresh names for unused variables.
-withNames' :: HasFree a => Int -> a -> ([String] -> P b) -> P b
-withNames' n tm k = withNames n' $ k . insBlanks
+withNames' :: HasFree a => [NHint] -> a -> ([String] -> P b) -> P b
+withNames' nhs tm k = withNames n' $ k . insBlanks
   where
+    n = length nhs
     fv = freeVars tm
-    n'  = length $ filter (< n) $ Map.keys fv
+    n'  = (nhs !!) <$> filter (< n) (Map.keys fv)
     insBlanks = go n
       where
         go 0 _ = []
@@ -135,18 +137,19 @@ pTerm t = case t of
     paren 9 $ (\a bs -> sep [a, nest 2 $ fsep bs])
               <$> pTerm' 9 f
               <*> mapM (pTerm' 10) es
-  TLam _ -> paren 0 $ withNames' n b $ \ xs -> bindNames xs $
+  TLam _ _ -> paren 0 $ withNames' nhs b $ \ xs -> bindNames xs $
     (\b -> sep [ text ("λ " ++ unwords xs ++ " →")
                , nest 2 b ]) <$> pTerm' 0 b
     where
-      (n, b) = tLamView t
-  TLet{} -> paren 0 $ withNames (length es) $ \ xs ->
+      (nhs, b) = tLamView t
+  TLet{} -> paren 0 $ withNames nhs $ \ xs ->
     (\ (binds, b) -> sep [ text "let" <+> vcat [ sep [ text x <+> text "="
                                                      , nest 2 e ] | (x, e) <- binds ]
                               <+> text "in", b ])
       <$> pLets (zip xs es) b
     where
-      (es, b) = tLetView t
+      (nhs, es) = unzip nhes
+      (nhes, b) = tLetView t
 
       pLets [] b = ([],) <$> pTerm' 0 b
       pLets ((x, e) : bs) b = do
@@ -165,8 +168,8 @@ pTerm t = case t of
       pAlt (TAGuard g b) =
         pAlt' <$> ((text "_" <+> text "|" <+>) <$> pTerm' 0 g)
               <*> (pTerm' 0 b)
-      pAlt (TACon c a b) =
-        withNames' a b $ \ xs -> bindNames xs $
+      pAlt (TACon c a nhs b) =
+        withNames' nhs b $ \ xs -> bindNames xs $
         pAlt' <$> pTerm' 0 (TApp (TCon c) [TVar i | i <- reverse [0..a - 1]])
               <*> pTerm' 0 b
       pAlt' p b = sep [p <+> text "→", nest 2 b]

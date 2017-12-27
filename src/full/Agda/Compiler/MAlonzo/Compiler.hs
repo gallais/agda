@@ -413,7 +413,8 @@ definition env Defn{defName = q, defType = ty, theDef = d} = do
         tyfunbind f ts t ps b = [tydecl f ts t, funbind f ps b]
 
     -- The definition of the non-stripped function
-    (ps0, _) <- lamView <$> closedTerm (foldr ($) T.TErased $ replicate (length used) T.TLam)
+    (ps0, _) <- let lams = T.mkTLams (replicate (length used) T.noNHint)
+                in lamView <$> closedTerm (lams T.TErased)
     let b0 = foldl HS.App (hsVarUQ $ duname q) [ hsVarUQ x | (~(HS.PVar x), True) <- zip ps0 used ]
 
     return $ if dostrip
@@ -485,8 +486,8 @@ freshNames n cont = do
   local (mapNameSupply (const rest)) $ cont xs
 
 -- | Introduce n variables into the context.
-intros :: Int -> ([HS.Name] -> CC a) -> CC a
-intros n cont = freshNames n $ \xs ->
+intros :: [NHint] -> ([HS.Name] -> CC a) -> CC a
+intros nhs cont = freshNames (length nhs) $ \xs ->
   local (mapContext (reverse xs ++)) $ cont xs
 
 checkConstructorType :: QName -> HaskellCode -> TCM [HS.Decl]
@@ -522,7 +523,7 @@ closedTerm v = do
 
 -- Translate case on bool to if
 mkIf :: T.TTerm -> CC T.TTerm
-mkIf t@(TCase e _ d [TACon c1 0 b1, TACon c2 0 b2]) | T.isUnreachable d = do
+mkIf t@(TCase e _ d [TACon c1 0 _ b1, TACon c2 0 _ b2]) | T.isUnreachable d = do
   mTrue  <- lift $ getBuiltinName builtinTrue
   mFalse <- lift $ getBuiltinName builtinFalse
   let isTrue  c = Just c == mTrue
@@ -578,40 +579,33 @@ term tm0 = mkIf tm0 >>= \ tm0 -> case tm0 of
   T.TApp t ts -> do
     t' <- term t
     t' `apps` ts
-  T.TLam at -> do
-    (nm:_) <- asks ccNameSupply
-    intros 1 $ \ [x] ->
+  T.TLam nh at -> do
+     intros [nh] $ \ [x] ->
       hsLambda [HS.PVar x] <$> term at
-  T.TLet t1 t2 -> do
+  T.TLet nh t1 t2 -> do
     t1' <- term t1
-    intros 1 $ \[x] -> do
-      t2' <- term t2
-      return $ hsLet x t1' t2'
+    intros [nh] $ \ [x] ->
+     hsLet x t1' <$> term t2
 
   T.TCase sc ct def alts -> do
-    sc' <- term (T.TVar sc)
+    sc'   <- term (T.TVar sc)
     alts' <- traverse (alt sc) alts
-    def' <- term def
+    def'  <- term def
     let defAlt = HS.Alt HS.PWildCard (HS.UnGuardedRhs def') emptyBinds
-
     return $ HS.Case (hsCoerce sc') (alts' ++ [defAlt])
 
-  T.TLit l -> return $ literal l
-  T.TDef q -> do
-    HS.Var <$> (lift $ xhqn "d" q)
-  T.TCon q   -> term (T.TApp (T.TCon q) [])
-  T.TPrim p  -> return $ compilePrim p
-  T.TUnit    -> return HS.unit_con
-  T.TSort    -> return HS.unit_con
+  T.TLit l    -> return $ literal l
+  T.TDef q    -> HS.Var <$> (lift $ xhqn "d" q)
+  T.TCon q    -> term (T.TApp (T.TCon q) [])
+  T.TPrim p   -> return $ compilePrim p
+  T.TUnit     -> return HS.unit_con
+  T.TSort     -> return HS.unit_con
   T.TCoerce e -> hsCoerce <$> term e
-  T.TErased  -> return $ hsVarUQ $ HS.Ident mazErasedName
-  T.TError e -> return $ case e of
-    T.TUnreachable ->  rtmUnreachableError
+  T.TErased   -> return $ hsVarUQ $ HS.Ident mazErasedName
+  T.TError e  -> return $ e `seq` rtmUnreachableError
   where apps =  foldM (\ h a -> HS.App h <$> term a)
-        etaExpand n t =
-          foldr (const T.TLam)
-                (T.mkTApp (raise n t) [T.TVar i | i <- [n - 1, n - 2..0]])
-                (replicate n ())
+        etaExpand n t = T.mkTLams (replicate n noNHint)
+                      $ T.mkTApp (raise n t) [T.TVar i | i <- [n - 1, n - 2..0]]
 
 hsCoerce :: HS.Exp -> HS.Exp
 hsCoerce t = HS.App mazCoerce t
@@ -622,11 +616,11 @@ compilePrim s = HS.Var $ hsName $ treelessPrimName s
 alt :: Int -> T.TAlt -> CC HS.Alt
 alt sc a = do
   case a of
-    T.TACon {T.aCon = c} -> do
-      intros (T.aArity a) $ \ xs -> do
+    T.TACon c _ nhs _ -> do
+      intros nhs $ \ xs -> do
         erased <- lift $ getErasedConArgs c
-        nil  <- lift $ getBuiltinName builtinNil
-        cons <- lift $ getBuiltinName builtinCons
+        nil    <- lift $ getBuiltinName builtinNil
+        cons   <- lift $ getBuiltinName builtinCons
         hConNm <-
           if | Just c == nil  -> return $ HS.UnQual $ HS.Ident "[]"
              | Just c == cons -> return $ HS.UnQual $ HS.Symbol ":"

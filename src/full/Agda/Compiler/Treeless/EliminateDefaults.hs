@@ -34,11 +34,11 @@ eliminateCaseDefaults = tr
         def <- tr def
         newAlts <- forM missingCons $ \con -> do
           Constructor {conArity = ar} <- theDef <$> getConstInfo con
-          return $ TACon con ar (TVar ar)
+          return $ TACon con ar (replicate ar noNHint) (TVar ar)
 
         alts' <- (++ newAlts) <$> mapM (trAlt . raise 1) alts
 
-        return $ TLet def $ TCase (sc + 1) ct tUnreachable alts'
+        return $ TLet noNHint def $ TCase (sc + 1) ct tUnreachable alts'
       TCase sc ct def alts -> TCase sc ct <$> tr def <*> mapM trAlt alts
 
       TVar{}    -> tt
@@ -52,14 +52,14 @@ eliminateCaseDefaults = tr
       TError{}  -> tt
 
       TCoerce a               -> TCoerce <$> tr a
-      TLam b                  -> TLam <$> tr b
+      TLam nh b               -> TLam nh <$> tr b
       TApp a bs               -> TApp <$> tr a <*> mapM tr bs
-      TLet e b                -> TLet <$> tr e <*> tr b
+      TLet nh e b             -> TLet nh <$> tr e <*> tr b
 
       where tt = return t
 
     trAlt :: TAlt -> TCM TAlt
     trAlt a = case a of
-      TAGuard g b -> TAGuard <$> tr g <*> tr b
-      TACon q a b -> TACon q a <$> tr b
-      TALit l b   -> TALit l <$> tr b
+      TAGuard g b   -> TAGuard <$> tr g <*> tr b
+      TACon q n a b -> TACon q n a <$> tr b
+      TALit l b     -> TALit l <$> tr b

@@ -85,9 +85,9 @@ transform BuiltinKit{..} = tr
     tr t = case t of
 
       TCon c | isZero c   -> tInt 0
-             | isSuc c    -> TLam (tPlusK 1 (TVar 0))
-             | isPos c    -> TLam (TVar 0)
-             | isNegSuc c -> TLam $ tNegPlusK 1 (TVar 0)
+             | isSuc c    -> TLam noNHint (tPlusK 1 (TVar 0))
+             | isPos c    -> TLam noNHint (TVar 0)
+             | isNegSuc c -> TLam noNHint $ tNegPlusK 1 (TVar 0)
 
       TDef f | isPlus f   -> TPrim PAdd
              | isTimes f  -> TPrim PMul
@@ -100,7 +100,8 @@ transform BuiltinKit{..} = tr
         --       that it won't underflow.
 
       TApp (TDef q) (_ : _ : _ : _ : e : f : es)
-        | isForce q -> tr $ TLet e $ mkTApp (tOp PSeq (TVar 0) $ mkTApp (raise 1 f) [TVar 0]) es
+        | isForce q -> tr $ TLet noNHint e $ mkTApp (tOp PSeq (TVar 0)
+                                           $ mkTApp (raise 1 f) [TVar 0]) es
 
       TApp (TCon s) [e] | isSuc s ->
         case tr e of
@@ -119,25 +120,26 @@ transform BuiltinKit{..} = tr
       TCase e t d bs -> TCase e (inferCaseType t bs) (tr d) $ concatMap trAlt bs
         where
           trAlt b = case b of
-            TACon c 0 b | isZero c -> [TALit (LitNat noRange 0) (tr b)]
-            TACon c 1 b | isSuc c  ->
+            TACon c 0 _ b | isZero c -> [TALit (LitNat noRange 0) (tr b)]
+            TACon c 1 _ b | isSuc c  ->
               case tr b of
                 -- Collapse nested n+k patterns
                 TCase 0 _ d bs' -> map sucBranch bs' ++ [nPlusKAlt 1 d]
                 b -> [nPlusKAlt 1 b]
               where
-                sucBranch (TALit (LitNat r i) b) = TALit (LitNat r (i + 1)) $ TLet (tInt i) b
+                sucBranch (TALit (LitNat r i) b) = TALit (LitNat r (i + 1))
+                                                 $ TLet noNHint (tInt i) b
                 sucBranch alt | Just (k, b) <- nPlusKView alt =
-                  nPlusKAlt (k + 1) $ TLet (tOp PAdd (TVar 0) (tInt 1)) $
+                  nPlusKAlt (k + 1) $ TLet noNHint (tOp PAdd (TVar 0) (tInt 1)) $
                     applySubst ([TVar 1, TVar 0] ++# wkS 2 idS) b
                 sucBranch _ = __IMPOSSIBLE__
 
                 nPlusKAlt k b = TAGuard (tOp PGeq (TVar e) (tInt k)) $
-                                TLet (tOp PSub (TVar e) (tInt k)) b
+                                TLet noNHint (tOp PSub (TVar e) (tInt k)) b
 
                 str err = compactS err [Nothing]
 
-            TACon c 1 b | isPos c ->
+            TACon c 1 _ b | isPos c ->
               case tr b of
                 -- collapse nested nat patterns
                 TCase 0 _ d bs -> map sub bs ++ [posAlt d]
@@ -149,25 +151,25 @@ transform BuiltinKit{..} = tr
 
                 posAlt b = TAGuard (tOp PGeq (TVar e) (tInt 0)) $ sub b
 
-            TACon c 1 b | isNegSuc c ->
+            TACon c 1 _ b | isNegSuc c ->
               case tr b of
                 -- collapse nested nat patterns
                 TCase 0 _ d bs -> map negsucBranch bs ++ [negAlt d]
                 b -> [negAlt b]
               where
-                body b   = TLet (tNegPlusK 1 (TVar e)) b
+                body b   = TLet noNHint (tNegPlusK 1 (TVar e)) b
                 negAlt b = TAGuard (tOp PLt (TVar e) (tInt 0)) $ body b
 
                 negsucBranch (TALit (LitNat r i) b) = TALit (LitNat r (-i - 1)) $ body b
                 negsucBranch alt | Just (k, b) <- nPlusKView alt =
                   TAGuard (tOp PLt (TVar e) (tInt (-k))) $
-                  body $ TLet (tNegPlusK (k + 1) (TVar $ e + 1)) b
+                  body $ TLet noNHint (tNegPlusK (k + 1) (TVar $ e + 1)) b
                 negsucBranch _ = __IMPOSSIBLE__
 
 
-            TACon c a b -> [TACon c a (tr b)]
-            TALit l b   -> [TALit l (tr b)]
-            TAGuard g b -> [TAGuard (tr g) (tr b)]
+            TACon c n a b -> [TACon c n a (tr b)]
+            TALit l b     -> [TALit l (tr b)]
+            TAGuard g b   -> [TAGuard (tr g) (tr b)]
 
       TVar{}    -> t
       TDef{}    -> t
@@ -181,11 +183,11 @@ transform BuiltinKit{..} = tr
 
       TCoerce a -> TCoerce (tr a)
 
-      TLam b                  -> TLam (tr b)
-      TApp a bs               -> TApp (tr a) (map tr bs)
-      TLet e b                -> TLet (tr e) (tr b)
+      TLam nh b   -> TLam nh (tr b)
+      TApp a bs   -> TApp (tr a) (map tr bs)
+      TLet nh e b -> TLet nh (tr e) (tr b)
 
-    inferCaseType t (TACon c _ _ : _)
+    inferCaseType t (TACon c _ _ _ : _)
       | isZero c   = t { caseType = CTNat }
       | isSuc c    = t { caseType = CTNat }
       | isPos c    = t { caseType = CTInt }
@@ -193,6 +195,6 @@ transform BuiltinKit{..} = tr
     inferCaseType t _ = t
 
     nPlusKView (TAGuard (TApp (TPrim PGeq) [TVar 0, (TLit (LitNat _ k))])
-                        (TLet (TApp (TPrim PSub) [TVar 0, (TLit (LitNat _ j))]) b))
+                        (TLet noNHint (TApp (TPrim PSub) [TVar 0, (TLit (LitNat _ j))]) b))
       | k == j = Just (k, b)
     nPlusKView _ = Nothing

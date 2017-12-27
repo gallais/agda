@@ -4,6 +4,7 @@ module Agda.Compiler.Treeless.Simplify (simplifyTTerm) where
 import Control.Arrow (first, second, (***))
 import Control.Monad.Reader
 import Control.Monad.Writer
+import Data.Function (on)
 import Data.Traversable (traverse)
 import qualified Data.List as List
 
@@ -107,10 +108,10 @@ simplify FunctionKit{..} = simpl
         f  <- simpl f
         es <- traverse simpl es
         maybeMinusToPrim f es
-      TLam b         -> TLam <$> underLam (simpl b)
+      TLam nh b      -> TLam nh <$> underLam (simpl b)
       TLit{}         -> pure t
       TCon{}         -> pure t
-      TLet e b       -> do
+      TLet nh e b    -> do
         e <- simpl e
         case e of
           TPFn P64ToI a -> do
@@ -119,17 +120,18 @@ simplify FunctionKit{..} = simpl
             -- moment they only do if inlining the entire let looks like a
             -- good idea.
             let rho = inplaceS 0 (TPFn P64ToI (TVar 0))
-            tLet a <$> underLet a (simpl (applySubst rho b))
-          _ -> tLet e <$> underLet e (simpl b)
+            tLet nh a <$> underLet a (simpl (applySubst rho b))
+          _ -> tLet nh e <$> underLet e (simpl b)
 
       TCase x t d bs -> do
         v <- lookupVar x
         let (lets, u) = tLetView v
         case u of                          -- TODO: also for literals
           _ | Just (c, as)     <- conView u   -> simpl $ matchCon lets c as d bs
-            | Just (k, TVar y) <- plusKView u -> simpl . mkLets lets . TCase y t d =<< mapM (matchPlusK y x k) bs
-          TCase y t1 d1 bs1 -> simpl $ mkLets lets $ TCase y t1 (distrDef case1 d1) $
-                                       map (distrCase case1) bs1
+            | Just (k, TVar y) <- plusKView u -> simpl . mkTLets lets . TCase y t d
+                                                 =<< mapM (matchPlusK y x k) bs
+          TCase y t1 d1 bs1 -> simpl $ mkTLets lets $ TCase y t1 (distrDef case1 d1) $
+                                       map (distrCase noNHint case1) bs1
             where
               -- Γ x Δ -> Γ _ Δ Θ y, where x maps to y and Θ are the lets
               n     = length lets
@@ -139,11 +141,12 @@ simplify FunctionKit{..} = simpl
               case1 = applySubst rho (TCase x t d bs)
 
               distrDef v d | isUnreachable d = tUnreachable
-                           | otherwise       = tLet d v
+                           | otherwise       = tLet noNHint d v
 
-              distrCase v (TACon c a b) = TACon c a $ TLet b $ raiseFrom 1 a v
-              distrCase v (TALit l b)   = TALit l   $ TLet b v
-              distrCase v (TAGuard g b) = TAGuard g $ TLet b v
+              distrCase nh v (TACon c n a b) = TACon c n a $ TLet nh b
+                                             $ raiseFrom 1 n v
+              distrCase nh v (TALit l b)     = TALit l   $ TLet nh b v
+              distrCase nh v (TAGuard g b)   = TAGuard g $ TLet nh b v
 
           _ -> do
             d  <- simpl d
@@ -167,22 +170,21 @@ simplify FunctionKit{..} = simpl
           k = length lets
       return $ case u of
         TCase y _ d' bs' | x + k == y ->
-          mkLets lets $ TCase y t d' $ raise k bs ++ bs'
+          mkTLets lets $ TCase y t d' $ raise k bs ++ bs'
         _ -> e
     unchainCase e = return e
 
-
-    mkLets es b = foldr TLet b es
-
+    matchCon :: [(NHint, TTerm)] -> QName -> [TTerm] -> TTerm -> [TAlt] -> TTerm
     matchCon _ _ _ d [] = d
     matchCon lets c as d (TALit{}   : bs) = matchCon lets c as d bs
     matchCon lets c as d (TAGuard{} : bs) = matchCon lets c as d bs
-    matchCon lets c as d (TACon c' a b : bs)
-      | c == c'        = flip (foldr TLet) lets $ mkLet 0 as (raiseFrom a (length lets) b)
+    matchCon lets c as d (TACon c' n a b : bs)
+      | c == c'        = mkTLets lets $ mkLet 0 as (raiseFrom n (length lets) b)
       | otherwise      = matchCon lets c as d bs
       where
+        mkLet :: Int -> [TTerm] -> TTerm -> TTerm
         mkLet _ []       b = b
-        mkLet i (a : as) b = TLet (raise i a) $ mkLet (i + 1) as b
+        mkLet i (a : as) b = TLet noNHint (raise i a) $ mkLet (i + 1) as b
 
     -- Simplify let y = x + k in case y of j     -> u; _ | g[y]     -> v
     -- to       let y = x + k in case x of j - k -> u; _ | g[x + k] -> v
@@ -202,10 +204,10 @@ simplify FunctionKit{..} = simpl
         inline (TVar x)                   = do
           v <- lookupVar x
           if v == TVar x then pure v else inline v
-        inline (TApp f@TPrim{} args)      = TApp f <$> mapM inline args
-        inline u@(TLet _ (TCase 0 _ _ _)) = pure u
-        inline (TLet e b)                 = inline (subst 0 e b)
-        inline u                          = pure u
+        inline (TApp f@TPrim{} args)        = TApp f <$> mapM inline args
+        inline u@(TLet _ _ (TCase 0 _ _ _)) = pure u
+        inline (TLet _ e b)                 = inline (subst 0 e b)
+        inline u                            = pure u
     simplPrim t = pure t
 
     simplPrim' :: TTerm -> TTerm
@@ -305,8 +307,11 @@ simplify FunctionKit{..} = simpl
       | op == PSub = Just (PAdd, -k, u)
     constArithView _ = Nothing
 
-    simplAlt x (TACon c a b) = TACon c a <$> underLams a (maybeAddRewrite (x + a) conTerm $ simpl b)
-      where conTerm = mkTApp (TCon c) [TVar i | i <- reverse $ take a [0..]]
+    simplAlt x (TACon c n nhs b) =
+      TACon c n nhs <$> underLams a (maybeAddRewrite (x + a) conTerm $ simpl b)
+
+        where a = length nhs
+              conTerm = mkTApp (TCon c) [TVar i | i <- reverse $ take a [0..]]
     simplAlt x (TALit l b)   = TALit l   <$> maybeAddRewrite x (TLit l) (simpl b)
     simplAlt x (TAGuard g b) = TAGuard   <$> simpl g <*> simpl b
 
@@ -334,9 +339,10 @@ simplify FunctionKit{..} = simpl
 
     maybeMinusToPrim f es = tApp f es
 
-    tLet (TVar x) b = subst 0 (TVar x) b
-    tLet e (TVar 0) = e
-    tLet e b        = TLet e b
+    tLet :: NHint -> TTerm -> TTerm -> TTerm
+    tLet nh (TVar x) b = subst 0 (TVar x) b
+    tLet nh e (TVar 0) = e
+    tLet nh e b        = TLet nh e b
 
     tCase :: Int -> CaseInfo -> TTerm -> [TAlt] -> S TTerm
     tCase x t d [] = pure d
@@ -344,9 +350,9 @@ simplify FunctionKit{..} = simpl
       | isUnreachable d =
         case reverse bs' of
           [] -> pure d
-          TALit _ b   : as  -> tCase x t b (reverse as)
-          TAGuard _ b : as  -> tCase x t b (reverse as)
-          TACon c a b : _   -> tCase' x t d bs'
+          TALit _ b     : as  -> tCase x t b (reverse as)
+          TAGuard _ b   : as  -> tCase x t b (reverse as)
+          TACon _ _ _ _ : _   -> tCase' x t d bs'
       | otherwise = do
         d' <- lookupIfVar d
         case d' of
@@ -360,9 +366,10 @@ simplify FunctionKit{..} = simpl
         lookupIfVar t = pure t
 
         noOverlap b = not $ any (overlapped b) bs'
-        overlapped (TACon c _ _)  (TACon c' _ _) = c == c'
-        overlapped (TALit l _)    (TALit l' _)   = l == l'
-        overlapped _              _              = False
+        overlapped t u = case (t, u) of
+          (TACon{}, TACon{}) -> ((==) `on` aCon) t u
+          (TALit{}, TALit{}) -> ((==) `on` aLit) t u
+          _                  -> False
 
     -- | Drop unreachable cases for Nat and Int cases.
     pruneLitCases :: Int -> CaseInfo -> TTerm -> [TAlt] -> S TTerm
@@ -387,7 +394,7 @@ simplify FunctionKit{..} = simpl
     tCase' x t d bs = pruneLitCases x t d bs
 
     tApp :: TTerm -> [TTerm] -> S TTerm
-    tApp (TLet e b) es = TLet e <$> underLet e (tApp b (raise 1 es))
+    tApp (TLet nh e b) es = TLet nh e <$> underLet e (tApp b (raise 1 es))
     tApp (TCase x t d bs) es = do
       d  <- tApp d es
       bs <- mapM (`tAppAlt` es) bs
@@ -399,13 +406,13 @@ simplify FunctionKit{..} = simpl
         TLam{} -> tApp v es   -- could blow up the code
         _      -> pure $ mkTApp (TVar x) es
     tApp f [] = pure f
-    tApp (TLam b) (TVar i : es) = tApp (subst 0 (TVar i) b) es
-    tApp (TLam b) (e : es) = tApp (TLet e b) es
+    tApp (TLam _ b) (TVar i : es) = tApp (subst 0 (TVar i) b) es
+    tApp (TLam nh b) (e : es) = tApp (TLet nh e b) es
     tApp f es = pure $ TApp f es
 
-    tAppAlt (TACon c a b) es = TACon c a <$> underLams a (tApp b (raise a es))
-    tAppAlt (TALit l b) es   = TALit l   <$> tApp b es
-    tAppAlt (TAGuard g b) es = TAGuard g <$> tApp b es
+    tAppAlt (TACon c n nhs b) es = TACon c n nhs <$> underLams n (tApp b (raise n es))
+    tAppAlt (TALit l b) es       = TALit l   <$> tApp b es
+    tAppAlt (TAGuard g b) es     = TAGuard g <$> tApp b es
 
     isAtomic v = case v of
       TVar{}    -> True

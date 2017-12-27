@@ -35,12 +35,12 @@ instance Subst TTerm TTerm where
       TError{}  -> t
       TVar i         -> lookupS rho i
       TApp f ts      -> tApp (applySubst rho f) (applySubst rho ts)
-      TLam b         -> TLam (applySubst (liftS 1 rho) b)
-      TLet e b       -> TLet (applySubst rho e) (applySubst (liftS 1 rho) b)
+      TLam nh b      -> TLam nh (applySubst (liftS 1 rho) b)
+      TLet nh e b    -> TLet nh (applySubst rho e) (applySubst (liftS 1 rho) b)
       TCase i t d bs ->
         case applySubst rho (TVar i) of
           TVar j  -> TCase j t (applySubst rho d) (applySubst rho bs)
-          e       -> TLet e $ TCase 0 t (applySubst rho' d) (applySubst rho' bs)
+          e       -> TLet noNHint e $ TCase 0 t (applySubst rho' d) (applySubst rho' bs)
             where rho' = wkS 1 rho
       TCoerce e -> TCoerce (applySubst rho e)
     where
@@ -48,9 +48,9 @@ instance Subst TTerm TTerm where
       tApp f ts = TApp f ts
 
 instance Subst TTerm TAlt where
-  applySubst rho (TACon c i b) = TACon c i (applySubst (liftS i rho) b)
-  applySubst rho (TALit l b)   = TALit l (applySubst rho b)
-  applySubst rho (TAGuard g b) = TAGuard (applySubst rho g) (applySubst rho b)
+  applySubst rho (TACon c i nhs b) = TACon c i nhs (applySubst (liftS i rho) b)
+  applySubst rho (TALit l b)       = TALit l (applySubst rho b)
+  applySubst rho (TAGuard g b)     = TAGuard (applySubst rho g) (applySubst rho b)
 
 newtype UnderLambda = UnderLambda Any
   deriving (Eq, Ord, Show, Semigroup, Monoid)
@@ -119,16 +119,16 @@ instance HasFree TTerm where
     TVar i         -> freeVars i
     TApp (TPrim PSeq) [TVar x, b] -> freeVars (InSeq x, b)
     TApp f ts      -> freeVars (f, ts)
-    TLam b         -> underLambda <$> freeVars (Binder 1 b)
-    TLet e b       -> freeVars (e, Binder 1 b)
+    TLam _ b       -> underLambda <$> freeVars (Binder 1 b)
+    TLet _ e b     -> freeVars (e, Binder 1 b)
     TCase i _ d bs -> freeVars (i, (d, bs))
     TCoerce t      -> freeVars t
 
 instance HasFree TAlt where
   freeVars a = case a of
-    TACon _ i b -> freeVars (Binder i b)
-    TALit _ b   -> freeVars b
-    TAGuard g b -> freeVars (g, b)
+    TACon _ i _ b -> freeVars (Binder i b)
+    TALit _ b     -> freeVars b
+    TAGuard g b   -> freeVars (g, b)
 
 -- | Strenghtening.
 tryStrengthen :: (HasFree a, Subst t a) => Int -> a -> Maybe a

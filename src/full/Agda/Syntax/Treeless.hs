@@ -29,6 +29,19 @@ data Compiled = Compiled
 
 type Args = [TTerm]
 
+
+-- This is a name hint for variables. We try to respect them as much as
+-- possible in order to produce code that's easier to read.
+
+newtype NHint = NHint { getNHint :: Maybe String }
+  deriving (Data, Show, Eq, Ord)
+
+mkNHint :: String -> NHint
+mkNHint = NHint . Just
+
+noNHint :: NHint
+noNHint = NHint Nothing
+
 -- this currently assumes that TApp is translated in a lazy/cbn fashion.
 -- The AST should also support strict translation.
 --
@@ -37,10 +50,10 @@ data TTerm = TVar Int
            | TPrim TPrim
            | TDef QName
            | TApp TTerm Args
-           | TLam TTerm
+           | TLam NHint TTerm
            | TLit Literal
            | TCon QName
-           | TLet TTerm TTerm
+           | TLet NHint TTerm TTerm
            -- ^ introduces a new local binding. The bound term
            -- MUST only be evaluated if it is used inside the body.
            -- Sharing may happen, but is optional.
@@ -101,21 +114,27 @@ tAppView = view
       TApp a bs -> view a ++ bs
       _         -> [t]
 
-tLetView :: TTerm -> ([TTerm], TTerm)
-tLetView (TLet e b) = first (e :) $ tLetView b
+tLetView :: TTerm -> ([(NHint, TTerm)], TTerm)
+tLetView (TLet nh e b) = first ((nh, e) :) $ tLetView b
 tLetView e          = ([], e)
 
-tLamView :: TTerm -> (Int, TTerm)
-tLamView = go 0
-  where go n (TLam b) = go (n + 1) b
-        go n t        = (n, t)
+tLamView :: TTerm -> ([NHint], TTerm)
+tLamView (TLam nh b) = first (nh :) $ tLamView b
+tLamView e           = ([], e)
 
-mkTLam :: Int -> TTerm -> TTerm
-mkTLam n b = foldr ($) b $ replicate n TLam
+-- | Introduces lambda abstraction
+mkTLam :: NHint -> TTerm -> TTerm
+mkTLam = TLam
 
--- | Introduces a new binding
-mkLet :: TTerm -> TTerm -> TTerm
-mkLet x body = TLet x body
+mkTLams :: [NHint] -> TTerm -> TTerm
+mkTLams nhs b = foldr TLam b nhs
+
+-- | Introduces let bindings
+mkTLet :: NHint -> TTerm -> TTerm -> TTerm
+mkTLet nh e body = TLet nh e body
+
+mkTLets :: [(NHint, TTerm)] -> TTerm -> TTerm
+mkTLets nhes b = foldr (uncurry TLet) b nhes
 
 tInt :: Integer -> TTerm
 tInt = TLit . LitNat noRange
@@ -177,10 +196,11 @@ data CaseInfo = CaseInfo
   deriving (Data, Show, Eq, Ord)
 
 data TAlt
-  = TACon    { aCon  :: QName, aArity :: Int, aBody :: TTerm }
+  = TACon    { aCon  :: QName, aArity :: Int, aNHints :: [NHint], aBody :: TTerm }
   -- ^ Matches on the given constructor. If the match succeeds,
   -- the pattern variables are prepended to the current environment
   -- (pushes all existing variables aArity steps further away)
+  -- invariant: aArity == length aNHints
   | TAGuard  { aGuard :: TTerm, aBody :: TTerm }
   -- ^ Binds no variables
   | TALit    { aLit :: Literal,   aBody:: TTerm }
@@ -204,9 +224,8 @@ instance Unreachable TAlt where
 
 instance Unreachable TTerm where
   isUnreachable (TError TUnreachable{}) = True
-  isUnreachable (TLet _ b) = isUnreachable b
+  isUnreachable (TLet _ _ b) = isUnreachable b
   isUnreachable _ = False
 
 instance KillRange Compiled where
   killRange c = c -- bogus, but not used anyway
-

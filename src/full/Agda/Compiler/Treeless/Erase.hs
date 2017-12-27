@@ -96,14 +96,14 @@ eraseTerms q t = usedArguments q t *> runE (eraseTop q t)
         TLit{}         -> pure t
         TCon{}         -> pure t
         TApp f es      -> tApp <$> erase f <*> mapM erase es
-        TLam b         -> tLam <$> erase b
-        TLet e b       -> do
+        TLam nh b      -> tLam nh <$> erase b
+        TLet nh e b    -> do
           e <- erase e
           if isErased e
             then case b of
-                   TCase 0 _ _ _ -> tLet TErased <$> erase b
+                   TCase 0 _ _ _ -> tLet nh TErased <$> erase b
                    _             -> erase $ subst 0 TErased b
-            else tLet e <$> erase b
+            else tLet nh e <$> erase b
         TCase x t d bs -> do
           (d, bs) <- pruneUnreachable x (caseType t) d bs
           d       <- erase d
@@ -116,11 +116,11 @@ eraseTerms q t = usedArguments q t *> runE (eraseTop q t)
         TError{}       -> pure t
         TCoerce e      -> TCoerce <$> erase e
 
-    tLam TErased = TErased
-    tLam t       = TLam t
+    tLam nh TErased = TErased
+    tLam nh t       = TLam nh t
 
-    tLet e b
-      | freeIn 0 b = TLet e b
+    tLet nh e b
+      | freeIn 0 b = TLet nh e b
       | otherwise  = strengthen __IMPOSSIBLE__ b
 
     tApp f []                  = f
@@ -131,12 +131,13 @@ eraseTerms q t = usedArguments q t *> runE (eraseTop q t)
     tCase x t d bs
       | isErased d && all (isErased . aBody) bs = pure TErased
       | otherwise = case bs of
-        [TACon c a b] -> do
+        [TACon c a nhs b] -> do
           h <- snd <$> getFunInfo c
           case h of
             NotErasable -> noerase
             Empty       -> pure TErased
-            Erasable    -> (if a == 0 then pure else erase) $ applySubst (replicate a TErased ++# idS) b
+            Erasable    -> (if a == 0 then pure else erase)
+                         $ applySubst ((TErased <$ nhs) ++# idS) b
                               -- might enable more erasure
         _ -> noerase
       where
@@ -148,11 +149,12 @@ eraseTerms q t = usedArguments q t *> runE (eraseTop q t)
                  | otherwise   = erase t
 
     eraseAlt a = case a of
-      TALit l b   -> TALit l   <$> erase b
-      TACon c a b -> do
+      TALit l b       -> TALit l   <$> erase b
+      TACon c a nhs b -> do
         rs <- map erasableR . fst <$> getFunInfo c
-        let sub = foldr (\ e -> if e then (TErased :#) . wkS 1 else liftS 1) idS $ reverse rs
-        TACon c a <$> erase (applySubst sub b)
+        let sub = foldr (\ e -> if e then (TErased :#) . wkS 1 else liftS 1) idS
+                $ reverse rs
+        TACon c a nhs <$> erase (applySubst sub b)
       TAGuard g b -> TAGuard   <$> erase g <*> erase b
 
 -- | Doesn't have any type information (other than the name of the data type),
