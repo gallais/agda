@@ -13,6 +13,7 @@ import Data.Generics.Geniplate
 import Data.Foldable hiding (any, all, foldr, sequence_)
 import Data.Function
 import qualified Data.List as List
+import Data.Char (isAlphaNum, isLower)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Maybe
@@ -20,8 +21,9 @@ import Data.Set (Set)
 import qualified Data.Set as Set
 import Data.Traversable hiding (for)
 import Data.Monoid hiding ((<>))
-
 import Numeric.IEEE
+
+import Text.Regex.TDFA (match, Regex, makeRegex)
 
 import qualified Agda.Utils.Haskell.Syntax as HS
 
@@ -451,27 +453,42 @@ constructorCoverageCode q np cs hsTy hsCons = do
     return $ ccs ++ cov
 
 -- | Environment for naming of local variables.
---   Invariant: @reverse ccCxt ++ ccNameSupply@
+--   Invariants:
+--     * @NameRegistry@'s support is disjoint from @ccCtxt ++ ccNameSupply@
+--     * @reverse ccCxt' ++ ccNameSupply'@ constant where @ccCxt'@ is @ccCxt@
+--       without variables whose prefix is in the support of @ccNameRegistry@
 data CCEnv = CCEnv
-  { ccNameSupply :: NameSupply  -- ^ Supply of fresh names
-  , ccCxt        :: CCContext   -- ^ Names currently in scope
+  { _ccNameSupply   :: NameSupply
+    -- ^ Supply of fresh names for variables with no HInt
+  , _ccNameRegistry :: NameRegistry
+    -- ^ Registry of the number of times a hint has been used
+  , _ccContext      :: CCContext
+    -- ^ Names currently in scope
   }
 
-type NameSupply = [HS.Name]
-type CCContext  = [HS.Name]
+type NameSupply   = [HS.Name]
+type NameRegistry = HMap.HashMap String Integer
+type CCContext    = [HS.Name]
 
-mapNameSupply :: (NameSupply -> NameSupply) -> CCEnv -> CCEnv
-mapNameSupply f e = e { ccNameSupply = f (ccNameSupply e) }
+ccNameSupply :: Lens' NameSupply CCEnv
+ccNameSupply f e =  (\ ns' -> e { _ccNameSupply = ns' }) <$> f (_ccNameSupply e)
 
-mapContext :: (CCContext -> CCContext) -> CCEnv -> CCEnv
-mapContext f e = e { ccCxt = f (ccCxt e) }
+ccNameRegistry :: Lens' NameRegistry CCEnv
+ccNameRegistry f e = (\ cxt -> e { _ccNameRegistry = cxt }) <$> f (_ccNameRegistry e)
+
+ccContext :: Lens' CCContext CCEnv
+ccContext f e = (\ cxt -> e { _ccContext = cxt }) <$> f (_ccContext e)
 
 -- | Initial environment for expression generation.
 initCCEnv :: CCEnv
 initCCEnv = CCEnv
-  { ccNameSupply = map (ihname "v") [0..]  -- DON'T CHANGE THESE NAMES!
-  , ccCxt        = []
+  { _ccNameSupply   = map (ihname "v") [0..]  -- DON'T CHANGE THESE NAMES!
+  , _ccNameRegistry = HMap.empty
+  , _ccContext      = []
   }
+
+reservedFreshNames :: Regex
+reservedFreshNames =  makeRegex "^v[0-9]*$"
 
 -- | Term variables are de Bruijn indices.
 lookupIndex :: Int -> CCContext -> HS.Name
@@ -479,16 +496,32 @@ lookupIndex i xs = fromMaybe __IMPOSSIBLE__ $ xs !!! i
 
 type CC = ReaderT CCEnv TCM
 
-freshNames :: Int -> ([HS.Name] -> CC a) -> CC a
-freshNames n _ | n < 0 = __IMPOSSIBLE__
-freshNames n cont = do
-  (xs, rest) <- splitAt n <$> asks ccNameSupply
-  local (mapNameSupply (const rest)) $ cont xs
+freshNameFromNHint :: NHint -> ([HS.Name] -> CC a) -> ([HS.Name] -> CC a)
+freshNameFromNHint (NHint Nothing) cont nms = do
+  (nm : rest) <- view ccNameSupply
+  local (set ccNameSupply rest) $ cont (nm : nms)
+freshNameFromNHint (NHint (Just nh)) cont nms
+  | match reservedFreshNames nh || any (not . isAlphaNum) nh
+      = freshNameFromNHint (NHint Nothing) cont nms
+  | otherwise = do
+    hm <- view ccNameRegistry
+    let (i, nm) = maybe (0, nh) (\ i -> (i+1, nh ++ show i)) $ HMap.lookup nh hm
+    local (set ccNameRegistry (HMap.insert nh i hm)) $
+      cont (HS.Ident (varOfString nm) : nms)
+
+  where
+
+    varOfString :: String -> String
+    varOfString nm@(x : xs) | isLower x = nm
+    varOfString nm                      = 'v' : nm
+
+freshNames :: [NHint] -> ([HS.Name] -> CC a) -> CC a
+freshNames nhs cont = foldr freshNameFromNHint cont nhs []
 
 -- | Introduce n variables into the context.
 intros :: [NHint] -> ([HS.Name] -> CC a) -> CC a
-intros nhs cont = freshNames (length nhs) $ \xs ->
-  local (mapContext (reverse xs ++)) $ cont xs
+intros nhs cont = freshNames nhs $ \xs ->
+  local (over ccContext (reverse xs ++)) $ cont xs
 
 checkConstructorType :: QName -> HaskellCode -> TCM [HS.Decl]
 checkConstructorType q hs = do
@@ -539,7 +572,7 @@ mkIf t = return t
 term :: T.TTerm -> CC HS.Exp
 term tm0 = mkIf tm0 >>= \ tm0 -> case tm0 of
   T.TVar i -> do
-    x <- lookupIndex i <$> asks ccCxt
+    x <- lookupIndex i <$> view ccContext
     return $ hsVarUQ x
   T.TApp (T.TPrim T.PIf) [c, x, y] -> HS.If <$> term c
                                             <*> term x
