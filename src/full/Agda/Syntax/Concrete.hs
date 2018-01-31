@@ -363,6 +363,7 @@ data Declaration
     --   temporarily, which should be treated different that user-declared
     --   private blocks.  Thus the 'Origin'.
   | InstanceB   Range [Declaration]
+  | Compile     Range [Declaration]
   | Macro       Range [Declaration]
   | Postulate   Range [TypeSignatureOrInstanceBlock]
   | Primitive   Range [TypeSignature]
@@ -619,6 +620,7 @@ instance HasRange Declaration where
   getRange (ModuleMacro r _ _ _ _) = r
   getRange (Import r _ _ _ _)      = r
   getRange (InstanceB r _)         = r
+  getRange (Compile r _)           = r
   getRange (Macro r _)             = r
   getRange (Private r _ _)         = r
   getRange (Postulate r _)         = r
@@ -753,6 +755,7 @@ instance KillRange Declaration where
   killRange (Abstract _ d)          = killRange1 (Abstract noRange) d
   killRange (Private _ o d)         = killRange2 (Private noRange) o d
   killRange (InstanceB _ d)         = killRange1 (InstanceB noRange) d
+  killRange (Compile _ d)           = killRange1 (Compile noRange) d
   killRange (Macro _ d)             = killRange1 (Macro noRange) d
   killRange (Postulate _ t)         = killRange1 (Postulate noRange) t
   killRange (Primitive _ t)         = killRange1 (Primitive noRange) t
@@ -968,6 +971,7 @@ instance NFData Declaration where
   rnf (Abstract _ a)          = rnf a
   rnf (Private _ _ a)         = rnf a
   rnf (InstanceB _ a)         = rnf a
+  rnf (Compile _ a)           = rnf a
   rnf (Macro _ a)             = rnf a
   rnf (Postulate _ a)         = rnf a
   rnf (Primitive _ a)         = rnf a

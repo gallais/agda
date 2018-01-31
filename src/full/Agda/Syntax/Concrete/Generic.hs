@@ -214,6 +214,7 @@ instance ExprLike Declaration where
      Abstract  r ds            -> Abstract  r                          $ mapE ds
      Private   r o ds          -> Private   r o                        $ mapE ds
      InstanceB r ds            -> InstanceB r                          $ mapE ds
+     Compile r ds              -> Compile   r                          $ mapE ds
      Macro     r ds            -> Macro     r                          $ mapE ds
      Postulate r ds            -> Postulate r                          $ mapE ds
      Primitive r ds            -> Primitive r                          $ mapE ds

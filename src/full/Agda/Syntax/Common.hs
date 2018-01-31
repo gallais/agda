@@ -1030,6 +1030,9 @@ data Access
   = PrivateAccess Origin
       -- ^ Store the 'Origin' of the private block that lead to this qualifier.
       --   This is needed for more faithful printing of declarations.
+  | OutsideAccess
+      -- ^ Available outside of the current module but not inside of it (except
+      --   for other @OutsideAccess@ declarations)
   | PublicAccess
   | OnlyQualified  -- ^ Visible from outside, but not exported when opening the module
                              --   Used for qualified constructors.
@@ -1038,6 +1041,7 @@ data Access
 instance Pretty Access where
   pretty = text . \case
     PrivateAccess _ -> "private"
+    OutsideAccess   -> "outside"
     PublicAccess    -> "public"
     OnlyQualified   -> "only-qualified"
 

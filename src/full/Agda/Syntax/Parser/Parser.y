@@ -120,6 +120,7 @@ import Agda.Utils.Impossible
     'open'                    { TokKeyword KwOpen $$ }
     'pattern'                 { TokKeyword KwPatternSyn $$ }
     'postulate'               { TokKeyword KwPostulate $$ }
+    'compile'                 { TokKeyword KwCompile $$ }
     'primitive'               { TokKeyword KwPrimitive $$ }
     'private'                 { TokKeyword KwPrivate $$ }
     'Prop'                    { TokKeyword KwProp $$ }
@@ -255,6 +256,7 @@ Token
     | 'postulate'               { TokKeyword KwPostulate $1 }
     | 'primitive'               { TokKeyword KwPrimitive $1 }
     | 'private'                 { TokKeyword KwPrivate $1 }
+    | 'compile'                 { TokKeyword KwCompile $1 }
     | 'Prop'                    { TokKeyword KwProp $1 }
     | 'public'                  { TokKeyword KwPublic $1 }
     | 'quote'                   { TokKeyword KwQuote $1 }
@@ -1128,6 +1130,7 @@ Declaration
     | Instance      { [$1] }
     | Macro         { [$1] }
     | Postulate     { [$1] }
+    | Compile       { [$1] }
     | Primitive     { [$1] }
     | Open          {  $1  }
 --    | Import      { [$1] }
@@ -1245,11 +1248,14 @@ Mutual : 'mutual' Declarations0  { Mutual (fuseRange $1 $2) $2 }
 Abstract :: { Declaration }
 Abstract : 'abstract' Declarations0  { Abstract (fuseRange $1 $2) $2 }
 
+-- "Type Provider" declarations.
+Compile :: { Declaration }
+Compile : 'compile' Declarations0  { Compile (fuseRange $1 $2) $2 }
+
 
 -- Private can only appear on the top-level (or rather the module level).
 Private :: { Declaration }
 Private : 'private' Declarations0        { Private (fuseRange $1 $2) UserWritten $2 }
-
 
 -- Instance declarations.
 Instance :: { Declaration }

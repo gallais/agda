@@ -34,25 +34,29 @@ instance EmbPrj NameSpaceId where
   icod_ PrivateNS       = icodeN 1 PrivateNS
   icod_ ImportedNS      = icodeN 2 ImportedNS
   icod_ OnlyQualifiedNS = icodeN 3 OnlyQualifiedNS
+  icod_ OutsideNS       = icodeN 4 OutsideNS
 
   value = vcase valu where
     valu []  = valuN PublicNS
     valu [1] = valuN PrivateNS
     valu [2] = valuN ImportedNS
     valu [3] = valuN OnlyQualifiedNS
+    valu [4] = valuN OutsideNS
     valu _   = malformed
 
 instance EmbPrj Access where
   icod_ (PrivateAccess UserWritten) = icodeN 0 ()
   icod_ PrivateAccess{}             = icodeN 1 ()
   icod_ PublicAccess                = icodeN' PublicAccess
-  icod_ OnlyQualified               = icodeN 2 ()
+  icod_ OnlyQualified               = icodeN 2 OnlyQualified
+  icod_ OutsideAccess               = icodeN 3 OutsideAccess
 
   value = vcase valu where
     valu [0] = valuN $ PrivateAccess UserWritten
     valu [1] = valuN $ PrivateAccess Inserted
     valu []  = valuN PublicAccess
     valu [2] = valuN OnlyQualified
+    valu [3] = valuN OutsideAccess
     valu _   = malformed
 
 instance EmbPrj NameSpace where

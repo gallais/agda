@@ -66,6 +66,7 @@ data Scope = Scope
 -- | See 'Agda.Syntax.Common.Access'.
 data NameSpaceId
   = PrivateNS        -- ^ Things not exported by this module.
+  | OutsideNS        -- ^ Things not available in this module but exported by this module.
   | PublicNS         -- ^ Things defined and exported by this module.
   | ImportedNS       -- ^ Things from open public, exported by this module.
   | OnlyQualifiedNS  -- ^ Visible (as qualified) from outside,
@@ -77,6 +78,7 @@ type ScopeNameSpaces = [(NameSpaceId, NameSpace)]
 
 localNameSpace :: Access -> NameSpaceId
 localNameSpace PublicAccess    = PublicNS
+localNameSpace OutsideAccess   = OutsideNS
 localNameSpace PrivateAccess{} = PrivateNS
 localNameSpace OnlyQualified   = OnlyQualifiedNS
 
@@ -985,6 +987,7 @@ instance Pretty AbstractModule where
 instance Pretty NameSpaceId where
   pretty = text . \case
     PublicNS        -> "public"
+    OutsideNS       -> "outside"
     PrivateNS       -> "private"
     ImportedNS      -> "imported"
     OnlyQualifiedNS -> "only-qualified"

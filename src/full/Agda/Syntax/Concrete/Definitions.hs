@@ -207,10 +207,12 @@ data DeclarationWarning
   | UselessPrivate Range
   | UselessAbstract Range
   | UselessInstance Range
+  | UselessCompile Range
   | EmptyMutual Range     -- ^ Empty @mutual@    block.
   | EmptyAbstract Range   -- ^ Empty @abstract@  block.
   | EmptyPrivate Range    -- ^ Empty @private@   block.
   | EmptyInstance Range   -- ^ Empty @instance@  block
+  | EmptyCompile Range    -- ^ Empty @compile@   block
   | EmptyMacro Range      -- ^ Empty @macro@     block.
   | EmptyPostulate Range  -- ^ Empty @postulate@ block.
   | InvalidTerminationCheckPragma Range
@@ -233,10 +235,12 @@ declarationWarningName dw = case dw of
   UselessPrivate{}                  -> UselessPrivate_
   UselessAbstract{}                 -> UselessAbstract_
   UselessInstance{}                 -> UselessInstance_
+  UselessCompile{}                  -> UselessCompile_
   EmptyMutual{}                     -> EmptyMutual_
   EmptyAbstract{}                   -> EmptyAbstract_
   EmptyPrivate{}                    -> EmptyPrivate_
   EmptyInstance{}                   -> EmptyInstance_
+  EmptyCompile{}                    -> EmptyCompile_
   EmptyMacro{}                      -> EmptyMacro_
   EmptyPostulate{}                  -> EmptyPostulate_
   InvalidTerminationCheckPragma{}   -> InvalidTerminationCheckPragma_
@@ -248,6 +252,7 @@ data KindOfBlock
   = PostulateBlock  -- ^ @postulate@
   | PrimitiveBlock  -- ^ @primitive@.  Ensured by parser.
   | InstanceBlock   -- ^ @instance@.  Actually, here all kinds of sub-declarations are allowed a priori.
+  | CompileBlock    -- ^ @provide@.
   | FieldBlock      -- ^ @field@.  Ensured by parser.
   | DataBlock       -- ^ @data ... where@.  Here we got a bad error message for Agda-2.5 (Issue 1698).
   deriving (Data, Eq, Ord, Show)
@@ -281,10 +286,12 @@ instance HasRange DeclarationWarning where
   getRange (UselessPrivate r)                   = r
   getRange (UselessAbstract r)                  = r
   getRange (UselessInstance r)                  = r
+  getRange (UselessCompile r)                   = r
   getRange (EmptyMutual r)                      = r
   getRange (EmptyAbstract r)                    = r
   getRange (EmptyPrivate r)                     = r
   getRange (EmptyInstance r)                    = r
+  getRange (EmptyCompile r)                     = r
   getRange (EmptyMacro r)                       = r
   getRange (EmptyPostulate r)                   = r
   getRange (InvalidTerminationCheckPragma r)    = r
@@ -382,10 +389,13 @@ instance Pretty DeclarationWarning where
     pwords "Using abstract here has no effect. Abstract applies to only definitions like data definitions, record type definitions and function clauses."
   pretty (UselessInstance _)      = fsep $
     pwords "Using instance here has no effect. Instance applies only to declarations that introduce new identifiers into the module, like type signatures and axioms."
+  pretty (UselessCompile _)      = fsep $
+    pwords "Using compile here has no effect. Compile applies only to declarations that introduce new identifiers into the module, like type signatures and axioms."
   pretty (EmptyMutual    _) = fsep $ pwords "Empty mutual block."
   pretty (EmptyAbstract  _) = fsep $ pwords "Empty abstract block."
   pretty (EmptyPrivate   _) = fsep $ pwords "Empty private block."
   pretty (EmptyInstance  _) = fsep $ pwords "Empty instance block."
+  pretty (EmptyCompile   _) = fsep $ pwords "Empty compile block."
   pretty (EmptyMacro     _) = fsep $ pwords "Empty macro block."
   pretty (EmptyPostulate _) = fsep $ pwords "Empty postulate block."
   pretty (InvalidTerminationCheckPragma _) = fsep $
@@ -816,6 +826,7 @@ niceDeclarations ds = do
       Abstract  _ ds       -> concatMap declaredNames ds
       Private _ _ ds       -> concatMap declaredNames ds
       InstanceB _ ds       -> concatMap declaredNames ds
+      Compile _ ds         -> concatMap declaredNames ds
       Macro     _ ds       -> concatMap declaredNames ds
       Postulate _ ds       -> concatMap declaredNames ds
       Primitive _ ds       -> concatMap declaredNames ds
@@ -983,6 +994,10 @@ niceDeclarations ds = do
         InstanceB r []  -> justWarning $ EmptyInstance r
         InstanceB r ds' ->
           (,ds) <$> (instanceBlock r =<< nice ds')
+
+        Compile r []  -> justWarning $ EmptyCompile r
+        Compile r ds' ->
+          (,ds) <$> (provideBlock r =<< nice ds')
 
         Macro r []  -> justWarning $ EmptyMacro r
         Macro r ds' ->
@@ -1432,6 +1447,42 @@ niceDeclarations ds = do
       InstanceDef -> return i
       _           -> dirty $ InstanceDef
 
+    provideBlock _ [] = return []
+    provideBlock r ds = do
+      let (ds', anyChange) = runChange $ mapM mkCompile ds
+      if anyChange then return ds' else do
+        niceWarning $ UselessCompile r
+        return ds -- no change!
+
+    -- Make a declaration a type provider
+    mkCompile :: Updater NiceDeclaration
+    mkCompile d =
+      case d of
+        Axiom r f p a i rel mp x e       -> (\ p -> Axiom r f p a i rel mp x e)       <$> setOutsideAccess p
+        FunSig r f p a i m rel tc x e    -> (\ p -> FunSig r f p a i m rel tc x e)    <$> setOutsideAccess p
+        NiceUnquoteDecl r f p a i tc x e -> (\ p -> NiceUnquoteDecl r f p a i tc x e) <$> setOutsideAccess p
+        NiceMutual r termCheck pc ds     -> NiceMutual r termCheck pc <$> mapM mkCompile ds
+        NiceFunClause{}                  -> return d
+        FunDef{}                         -> return d
+        NiceField{}                      -> return d  -- Field instance are handled by the parser
+        PrimitiveFunction{}              -> return d
+        NiceUnquoteDef{}                 -> return d
+        NiceRecSig{}                     -> return d
+        NiceDataSig{}                    -> return d
+        NiceModuleMacro{}                -> return d
+        NiceModule{}                     -> return d
+        NicePragma{}                     -> return d
+        NiceOpen{}                       -> return d
+        NiceImport{}                     -> return d
+        DataDef{}                        -> return d
+        RecDef{}                         -> return d
+        NicePatternSyn{}                 -> return d
+
+    setOutsideAccess :: Updater Access
+    setOutsideAccess p = case p of
+      OutsideAccess -> return p
+      _             -> dirty $ OutsideAccess
+
     macroBlock r ds = mapM mkMacro ds
 
     mkMacro :: NiceDeclaration -> Nice NiceDeclaration
@@ -1644,6 +1695,7 @@ fixitiesAndPolarities = foldMap $ \ d -> case d of
   Abstract  _ ds' -> fixitiesAndPolarities ds'
   Private _ _ ds' -> fixitiesAndPolarities ds'
   InstanceB _ ds' -> fixitiesAndPolarities ds'
+  Compile _   ds' -> fixitiesAndPolarities ds'
   Macro     _ ds' -> fixitiesAndPolarities ds'
   -- All other declarations are ignored.
   -- We expand these boring cases to trigger a revisit

@@ -103,10 +103,12 @@ data WarningName
   | UselessPrivate_
   | UselessAbstract_
   | UselessInstance_
+  | UselessCompile_
   | EmptyMutual_
   | EmptyAbstract_
   | EmptyPrivate_
   | EmptyInstance_
+  | EmptyCompile_
   | EmptyMacro_
   | EmptyPostulate_
   | InvalidTerminationCheckPragma_
@@ -195,10 +197,12 @@ warningNameDescription w = case w of
   UselessPrivate_                  -> "`private' blocks where they have no effect."
   UselessAbstract_                 -> "`abstract' blocks where they have no effect."
   UselessInstance_                 -> "`instance' blocks where they have no effect."
+  UselessCompile_                  -> "`compile' blocks where they have no effect."
   EmptyMutual_                     -> "Empty `mutual' blocks."
   EmptyAbstract_                   -> "Empty `abstract' blocks."
   EmptyPrivate_                    -> "Empty `private' blocks."
   EmptyInstance_                   -> "Empty `instance' blocks."
+  EmptyCompile_                    -> "Empty `compile' blocks."
   EmptyMacro_                      -> "Empty `macro' blocks."
   EmptyPostulate_                  -> "Empty `postulate' blocks."
   InvalidTerminationCheckPragma_   -> "Termination checking pragmas before non-function or `mutual' blocks."

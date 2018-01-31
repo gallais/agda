@@ -318,6 +318,8 @@ Individual warnings can be turned on and off by ``-W {Name}`` and ``-W
       ``abstract`` blocks where they have no effect.
 :samp:`UselessInstance`
       ``instance`` blocks where they have no effect.
+:samp:`UselessCompile`
+      ``compile`` blocks where they have no effect.
 :samp:`EmptyMutual`
       Empty ``mutual`` blocks.
 :samp:`EmptyAbstract`
@@ -326,6 +328,8 @@ Individual warnings can be turned on and off by ``-W {Name}`` and ``-W
       Empty ``private`` blocks.
 :samp:`EmptyInstance`
       Empty ``instance`` blocks.
+:samp:`EmptyCompile`
+      Empty ``compile`` blocks.
 :samp:`EmptyMacro`
       Empty ``macro`` blocks.
 :samp:`EmptyPostulate`

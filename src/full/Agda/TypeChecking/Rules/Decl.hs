@@ -742,6 +742,7 @@ checkTypeSignature (A.Axiom funSig i info mp x e) =
             | Info.defAbstract i == AbstractDef -> inAbstractMode
               -- Issue #2321, only go to AbstractMode for abstract definitions
             | otherwise -> inConcreteMode
+          OutsideAccess -> inConcreteMode
           PublicAccess  -> inConcreteMode
           OnlyQualified -> __IMPOSSIBLE__
     in abstr $ checkAxiom funSig i info mp x e

@@ -88,6 +88,8 @@ instance EmbPrj DeclarationWarning where
     InvalidNoPositivityCheckPragma a  -> icodeN 13 InvalidNoPositivityCheckPragma a
     InvalidCatchallPragma a           -> icodeN 14 InvalidCatchallPragma a
     UnknownFixityInMixfixDecl a       -> icodeN 15 UnknownFixityInMixfixDecl a
+    UselessCompile a                  -> icodeN 16 UselessCompile a
+    EmptyCompile a                    -> icodeN 17 EmptyCompile a
 
   value = vcase $ \case
     [0, a] -> valueN UnknownNamesInFixityDecl a
@@ -105,6 +107,9 @@ instance EmbPrj DeclarationWarning where
     [12,a] -> valueN InvalidTerminationCheckPragma a
     [13,a] -> valueN InvalidNoPositivityCheckPragma a
     [14,a] -> valueN InvalidCatchallPragma a
+    [15,a] -> valueN UnknownFixityInMixfixDecl a
+    [16,a] -> valueN UselessCompile a
+    [17,a] -> valueN EmptyCompile a
     _ -> malformed
 
 instance EmbPrj Doc where
