@@ -68,6 +68,7 @@ import Agda.TypeChecking.Monad.MetaVars (registerInteractionPoint)
 import Agda.TypeChecking.Monad.Debug
 import Agda.TypeChecking.Monad.Options
 import Agda.TypeChecking.Monad.Env (insideDotPattern, isInsideDotPattern)
+import Agda.TypeChecking.Positivity.Occurrence (Occurrence)
 import Agda.TypeChecking.Rules.Builtin (isUntypedBuiltin, bindUntypedBuiltin)
 
 import Agda.TypeChecking.Patterns.Abstract (expandPatternSynonyms)
@@ -1364,12 +1365,12 @@ instance ToAbstract NiceDeclaration A.Declaration where
     case d of
 
   -- Axiom (actual postulate)
-    C.Axiom r f p a i rel _ x t -> do
+    C.Axiom r f p a i rel z x t -> do
       -- check that we do not postulate in --safe mode
       clo <- commandLineOptions
       when (Lens.getSafeMode clo) (warning $ SafeFlagPostulate x)
       -- check the postulate
-      toAbstractNiceAxiom A.NoFunSig NotMacroDef d
+      toAbstractNiceAxiom A.NoFunSig NotMacroDef r f p a i rel z x t
 
   -- Fields
     C.NiceField r f p a i x t -> do
@@ -1425,7 +1426,7 @@ instance ToAbstract NiceDeclaration A.Declaration where
 
   -- Type signatures
     C.FunSig r f p a i m rel tc x t ->
-        toAbstractNiceAxiom A.FunSig m (C.Axiom r f p a i rel Nothing x t)
+        toAbstractNiceAxiom A.FunSig m r f p a i rel Nothing x t
 
   -- Function definitions
     C.FunDef r ds f a i tc x cs -> do
@@ -1645,14 +1646,16 @@ instance ToAbstract NiceDeclaration A.Declaration where
 
     where
       -- checking postulate or type sig. without checking safe flag
-      toAbstractNiceAxiom funSig isMacro (C.Axiom r f p a i info mp x t) = do
+      toAbstractNiceAxiom ::
+         Axiom -> IsMacro -> Range -> Fixity' -> Access -> IsAbstract -> IsInstance ->
+         ArgInfo -> Maybe [Occurrence] -> C.Name -> C.Expr -> TCM [A.Declaration]
+      toAbstractNiceAxiom funSig isMacro r f p a i info mp x t = do
         t' <- toAbstractCtx TopCtx t
         y  <- freshAbstractQName f x
         let kind | isMacro == MacroDef = MacroName
                  | otherwise           = DefName
         bindName p kind x y
         return [ A.Axiom funSig (mkDefInfoInstance x f p a i isMacro r) info mp y t' ]
-      toAbstractNiceAxiom _ _ _ = __IMPOSSIBLE__
 
 
 -- | Make sure definition is in same module as signature.
