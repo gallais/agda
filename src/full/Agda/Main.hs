@@ -160,7 +160,7 @@ runAgdaWithOptions backends generateHTML interaction progName opts
             LaTeX.generateLaTeX i
 
           -- Print accumulated warnings
-          ws <- (snd . classifyWarnings) <$> Imp.getAllWarnings' AllWarnings RespectFlags
+          ws <- (snd . classifyWarnings) <$> getAllWarnings' AllWarnings RespectFlags
           unless (null ws) $ do
             let banner = text $ "\n" ++ delimiter "All done; warnings encountered"
             reportSDoc "warning" 1 $

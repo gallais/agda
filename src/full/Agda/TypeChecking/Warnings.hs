@@ -5,18 +5,22 @@ module Agda.TypeChecking.Warnings where
 import qualified Data.Set as Set
 import qualified Data.List as List
 import Data.Maybe ( catMaybes )
+
 import Control.Monad (guard, forM_)
-
-import Agda.TypeChecking.Monad.Base
-import {-# SOURCE #-} Agda.TypeChecking.Errors
-import {-# SOURCE #-} Agda.TypeChecking.Pretty
-
-import Agda.Syntax.Position
-import Agda.Syntax.Parser
-import Agda.Syntax.Concrete.Definitions (DeclarationWarning(..))
 
 import Agda.Interaction.Options
 import Agda.Interaction.Options.Warnings
+
+import Agda.Syntax.Common
+import Agda.Syntax.Concrete.Definitions (DeclarationWarning(..))
+import Agda.Syntax.Position
+import Agda.Syntax.Parser
+
+import {-# SOURCE #-} Agda.TypeChecking.Errors
+import Agda.TypeChecking.Monad.Base
+import Agda.TypeChecking.Monad.Constraints
+import Agda.TypeChecking.Monad.MetaVars
+import {-# SOURCE #-} Agda.TypeChecking.Pretty
 
 import Agda.Utils.Lens
 import qualified Agda.Utils.Pretty as P
@@ -132,3 +136,93 @@ runPM m = do
   case res of
     Left  e -> throwError (Exception (getRange e) (P.pretty e))
     Right a -> return a
+
+-- | Collect all warnings that have accumulated in the state.
+-- Depending on the argument, we either respect the flags passed
+-- in by the user, or not (for instance when deciding if we are
+-- writing an interface file or not)
+
+getUniqueMetasRanges :: [MetaId] -> TCM [Range]
+getUniqueMetasRanges = fmap List.nub . mapM getMetaRange
+
+getUnsolvedMetas :: TCM [Range]
+getUnsolvedMetas = do
+  openMetas            <- getOpenMetas
+  interactionMetas     <- getInteractionMetas
+  getUniqueMetasRanges (openMetas List.\\ interactionMetas)
+
+getAllUnsolved :: TCM [TCWarning]
+getAllUnsolved = do
+  unsolvedInteractions <- getUniqueMetasRanges =<< getInteractionMetas
+  unsolvedConstraints  <- getAllConstraints
+  unsolvedMetas        <- getUnsolvedMetas
+
+  let checkNonEmpty c rs = c rs <$ guard (not $ null rs)
+
+  mapM warning_ $ catMaybes
+                [ checkNonEmpty UnsolvedInteractionMetas unsolvedInteractions
+                , checkNonEmpty UnsolvedMetaVariables    unsolvedMetas
+                , checkNonEmpty UnsolvedConstraints      unsolvedConstraints ]
+
+getAllWarnings' :: WhichWarnings -> IgnoreFlags -> TCM [TCWarning]
+getAllWarnings' ww ifs = do
+  unsolved            <- getAllUnsolved
+  collectedTCWarnings <- use stTCWarnings
+
+  fmap (filter ((<= ww) . classifyWarning . tcWarning))
+    $ applyFlagsToTCWarnings ifs $ reverse
+    $ unsolved ++ collectedTCWarnings
+
+
+-- | Depending which flags are set, one may happily ignore some
+-- warnings.
+
+applyFlagsToTCWarnings :: IgnoreFlags -> [TCWarning] -> TCM [TCWarning]
+applyFlagsToTCWarnings ifs ws = do
+
+  -- For some reason some SafeFlagPragma seem to be created multiple times.
+  -- This is a way to collect all of them and remove duplicates.
+  let pragmas w = case tcWarning w of { SafeFlagPragma ps -> ([w], ps); _ -> ([], []) }
+  let sfp = case fmap List.nub (foldMap pragmas ws) of
+              (TCWarning r w p:_, sfp) ->
+                 [TCWarning r (SafeFlagPragma sfp) p]
+              _                        -> []
+
+
+  unsolvedNotOK <- not . optAllowUnsolved <$> pragmaOptions
+  negativeNotOK <- not . optDisablePositivity <$> pragmaOptions
+  loopingNotOK  <- optTerminationCheck <$> pragmaOptions
+  catchallNotOK <- optExactSplit <$> pragmaOptions
+
+  -- filter out the warnings the flags told us to ignore
+  let cleanUp w =
+        let ignore = ifs == IgnoreFlags
+            keepUnsolved us = not (null us) && (ignore || unsolvedNotOK)
+        in case w of
+          TerminationIssue{}           -> ignore || loopingNotOK
+          CoverageIssue{}              -> ignore || unsolvedNotOK
+          NotStrictlyPositive{}        -> ignore || negativeNotOK
+          UnsolvedMetaVariables ums    -> keepUnsolved ums
+          UnsolvedInteractionMetas uis -> keepUnsolved uis
+          UnsolvedConstraints ucs      -> keepUnsolved ucs
+          OldBuiltin{}                 -> True
+          EmptyRewritePragma           -> True
+          UselessPublic                -> True
+          ParseWarning{}               -> True
+          UnreachableClauses{}         -> True
+          InversionDepthReached{}      -> True
+          CoverageNoExactSplit{}       -> catchallNotOK
+          UselessInline{}              -> True
+          GenericWarning{}             -> True
+          GenericNonFatalError{}       -> True
+          SafeFlagPostulate{}          -> True
+          SafeFlagPragma{}             -> False -- dealt with separately
+          SafeFlagNonTerminating       -> True
+          SafeFlagTerminating          -> True
+          SafeFlagPrimTrustMe          -> True
+          SafeFlagNoPositivityCheck    -> True
+          SafeFlagPolarity             -> True
+          DeprecationWarning{}         -> True
+          NicifierIssue{}              -> True
+
+  return $ sfp ++ filter (cleanUp . tcWarning) ws

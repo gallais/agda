@@ -8,6 +8,7 @@ import qualified GHC.Exts as GHC (Any)
 import qualified GHC.Prim as GHC (Any)
 #endif
 import qualified Data.Word
+import qualified Data.Text
 import Numeric.IEEE ( IEEE(identicalIEEE) )
 
 type AgdaAny = GHC.Any
@@ -149,3 +150,21 @@ lt64 = (<)
 
 data Inf a            = Sharp { flat :: a }
 type Infinity level a = Inf a
+
+-- Support for literals
+
+type Text = Data.Text.Text
+
+data Literal
+  = LitNat    { toLitNat    :: !Integer }
+  | LitWord64 { toLitWord64 :: !Word64 }
+  | LitFloat  { toLitFloat  :: !Double }
+  | LitString { toLitString :: Text }
+  | LitChar   { toLitChar   :: !Char }
+-- future work:
+--  | LitBool { toBool :: Bool }
+--  | LitPair { toPair :: (Literal, Literal) }
+--  | LitList   { toLitList   :: [Literal] }
+--  ...
+
+

@@ -10,7 +10,6 @@ module Agda.TypeChecking.Errors
   , prettyTCWarnings'
   , prettyTCWarnings
   , tcWarningsToError
-  , applyFlagsToTCWarnings
   , dropTopLevelModule
   , stringTCErr
   , sayWhen
@@ -230,59 +229,6 @@ tcWarningsToError ws = typeError $ case ws of
   [] -> SolvedButOpenHoles
   _  -> NonFatalErrors ws
 
-
--- | Depending which flags are set, one may happily ignore some
--- warnings.
-
-applyFlagsToTCWarnings :: IgnoreFlags -> [TCWarning] -> TCM [TCWarning]
-applyFlagsToTCWarnings ifs ws = do
-
-  -- For some reason some SafeFlagPragma seem to be created multiple times.
-  -- This is a way to collect all of them and remove duplicates.
-  let pragmas w = case tcWarning w of { SafeFlagPragma ps -> ([w], ps); _ -> ([], []) }
-  let sfp = case fmap nub (foldMap pragmas ws) of
-              (TCWarning r w p:_, sfp) ->
-                 [TCWarning r (SafeFlagPragma sfp) p]
-              _                        -> []
-
-
-  unsolvedNotOK <- not . optAllowUnsolved <$> pragmaOptions
-  negativeNotOK <- not . optDisablePositivity <$> pragmaOptions
-  loopingNotOK  <- optTerminationCheck <$> pragmaOptions
-  catchallNotOK <- optExactSplit <$> pragmaOptions
-
-  -- filter out the warnings the flags told us to ignore
-  let cleanUp w =
-        let ignore = ifs == IgnoreFlags
-            keepUnsolved us = not (null us) && (ignore || unsolvedNotOK)
-        in case w of
-          TerminationIssue{}           -> ignore || loopingNotOK
-          CoverageIssue{}              -> ignore || unsolvedNotOK
-          NotStrictlyPositive{}        -> ignore || negativeNotOK
-          UnsolvedMetaVariables ums    -> keepUnsolved ums
-          UnsolvedInteractionMetas uis -> keepUnsolved uis
-          UnsolvedConstraints ucs      -> keepUnsolved ucs
-          OldBuiltin{}                 -> True
-          EmptyRewritePragma           -> True
-          UselessPublic                -> True
-          ParseWarning{}               -> True
-          UnreachableClauses{}         -> True
-          InversionDepthReached{}      -> True
-          CoverageNoExactSplit{}       -> catchallNotOK
-          UselessInline{}              -> True
-          GenericWarning{}             -> True
-          GenericNonFatalError{}       -> True
-          SafeFlagPostulate{}          -> True
-          SafeFlagPragma{}             -> False -- dealt with separately
-          SafeFlagNonTerminating       -> True
-          SafeFlagTerminating          -> True
-          SafeFlagPrimTrustMe          -> True
-          SafeFlagNoPositivityCheck    -> True
-          SafeFlagPolarity             -> True
-          DeprecationWarning{}         -> True
-          NicifierIssue{}              -> True
-
-  return $ sfp ++ filter (cleanUp . tcWarning) ws
 
 ---------------------------------------------------------------------------
 -- * Helpers

@@ -139,7 +139,7 @@ primInteger, primIntegerPos, primIntegerNegSuc,
     primAgdaTCMTypeError, primAgdaTCMInferType, primAgdaTCMCheckType,
     primAgdaTCMNormalise, primAgdaTCMReduce,
     primAgdaTCMCatchError, primAgdaTCMGetContext, primAgdaTCMExtendContext, primAgdaTCMInContext,
-    primAgdaTCMFreshName, primAgdaTCMDeclareDef, primAgdaTCMDeclarePostulate, primAgdaTCMDefineFun,
+    primAgdaTCMFreshName, primAgdaTCMLiftIO, primAgdaTCMDeclareDef, primAgdaTCMDeclarePostulate, primAgdaTCMDefineFun,
     primAgdaTCMGetType, primAgdaTCMGetDefinition,
     primAgdaTCMQuoteTerm, primAgdaTCMUnquoteTerm,
     primAgdaTCMBlockOnMeta, primAgdaTCMCommit, primAgdaTCMIsMacro,
@@ -273,6 +273,7 @@ primAgdaTCMGetContext = getBuiltin builtinAgdaTCMGetContext
 primAgdaTCMExtendContext = getBuiltin builtinAgdaTCMExtendContext
 primAgdaTCMInContext     = getBuiltin builtinAgdaTCMInContext
 primAgdaTCMFreshName     = getBuiltin builtinAgdaTCMFreshName
+primAgdaTCMLiftIO        = getBuiltin builtinAgdaTCMLiftIO
 primAgdaTCMDeclareDef    = getBuiltin builtinAgdaTCMDeclareDef
 primAgdaTCMDeclarePostulate   = getBuiltin builtinAgdaTCMDeclarePostulate
 primAgdaTCMDefineFun     = getBuiltin builtinAgdaTCMDefineFun
@@ -327,7 +328,7 @@ builtinNat, builtinSuc, builtinZero, builtinNatPlus, builtinNatMinus,
   builtinAgdaTCMCheckType, builtinAgdaTCMNormalise, builtinAgdaTCMReduce,
   builtinAgdaTCMCatchError,
   builtinAgdaTCMGetContext, builtinAgdaTCMExtendContext, builtinAgdaTCMInContext,
-  builtinAgdaTCMFreshName, builtinAgdaTCMDeclareDef, builtinAgdaTCMDeclarePostulate, builtinAgdaTCMDefineFun,
+  builtinAgdaTCMFreshName, builtinAgdaTCMLiftIO, builtinAgdaTCMDeclareDef, builtinAgdaTCMDeclarePostulate, builtinAgdaTCMDefineFun,
   builtinAgdaTCMGetType, builtinAgdaTCMGetDefinition,
   builtinAgdaTCMQuoteTerm, builtinAgdaTCMUnquoteTerm,
   builtinAgdaTCMBlockOnMeta, builtinAgdaTCMCommit, builtinAgdaTCMIsMacro,
@@ -461,6 +462,7 @@ builtinAgdaTCMGetContext = "AGDATCMGETCONTEXT"
 builtinAgdaTCMExtendContext = "AGDATCMEXTENDCONTEXT"
 builtinAgdaTCMInContext     = "AGDATCMINCONTEXT"
 builtinAgdaTCMFreshName     = "AGDATCMFRESHNAME"
+builtinAgdaTCMLiftIO        = "AGDATCMLIFTIO"
 builtinAgdaTCMDeclareDef    = "AGDATCMDECLAREDEF"
 builtinAgdaTCMDeclarePostulate    = "AGDATCMDECLAREPOSTULATE"
 builtinAgdaTCMDefineFun     = "AGDATCMDEFINEFUN"

@@ -22,7 +22,6 @@ import qualified Agda.Syntax.Concrete.Name as C
 import Agda.Syntax.Internal as I
 
 import Agda.Interaction.FindFile
-import Agda.Interaction.Imports
 import Agda.Interaction.Options
 
 import Agda.TypeChecking.Monad

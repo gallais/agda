@@ -63,6 +63,8 @@ import Agda.Interaction.Highlighting.Precise (HighlightingInfo, mergeC, compress
 import Agda.Interaction.Highlighting.Generate
 import Agda.Interaction.Highlighting.Vim
 
+import {-# SOURCE #-} Agda.Compiler.Provider.Compiler ( provide )
+
 import Agda.Utils.Except ( MonadError(catchError, throwError) )
 import Agda.Utils.FileName
 import Agda.Utils.Lens
@@ -320,6 +322,8 @@ getInterface' x isMain = do
         "  " ++ prettyShow x ++ " is " ++
         (if uptodate then "" else "not ") ++ "up-to-date."
 
+      -- get the Interface. If it does not exist yet then typecheck the module.
+
       (stateChangesIncluded, (i, wt)) <- do
         -- -- Andreas, 2014-10-20 AIM XX:
         -- -- Always retype-check the main file to get the iInsideScope
@@ -357,7 +361,9 @@ getInterface' x isMain = do
         (_, SomeWarnings w)           -> return ()
         _                             -> storeDecodedModule i
 
-      return (i, wt)
+      -- overwrite the @iCompiled@ with the obtained filename
+      let i' = i -- { iCompiled = Just mfp }
+      return (i', wt)
 
 -- | Check whether interface file exists and is in cache
 --   in the correct version (as testified by the interface file hash).
@@ -831,7 +837,14 @@ createInterface file mname isMain = Bench.billTo [Bench.TopModule mname] $
         -- The file was successfully type-checked (and no warnings were
         -- encountered), so the interface should be written out.
         let ifile = filePath $ toIFile file
+
         writeInterface ifile i
+
+        reportSLn "import.iface.provide" 7 $ "Compiling provider."
+        -- Compilation of type providers
+        provide i
+        reportSLn "import.iface.provide" 7 $ "Done Compiling provider."
+
     reportSLn "import.iface.create" 7 $ "Finished (or skipped) writing to interface file."
 
     -- -- Restore the open metas, as we might continue in interaction mode.
@@ -850,41 +863,7 @@ createInterface file mname isMain = Bench.billTo [Bench.TopModule mname] $
 
     return $ first constructIScope (i, mallWarnings)
 
--- | Collect all warnings that have accumulated in the state.
--- Depending on the argument, we either respect the flags passed
--- in by the user, or not (for instance when deciding if we are
--- writing an interface file or not)
 
-getUniqueMetasRanges :: [MetaId] -> TCM [Range]
-getUniqueMetasRanges = fmap List.nub . mapM getMetaRange
-
-getUnsolvedMetas :: TCM [Range]
-getUnsolvedMetas = do
-  openMetas            <- getOpenMetas
-  interactionMetas     <- getInteractionMetas
-  getUniqueMetasRanges (openMetas List.\\ interactionMetas)
-
-getAllUnsolved :: TCM [TCWarning]
-getAllUnsolved = do
-  unsolvedInteractions <- getUniqueMetasRanges =<< getInteractionMetas
-  unsolvedConstraints  <- getAllConstraints
-  unsolvedMetas        <- getUnsolvedMetas
-
-  let checkNonEmpty c rs = c rs <$ guard (not $ null rs)
-
-  mapM warning_ $ catMaybes
-                [ checkNonEmpty UnsolvedInteractionMetas unsolvedInteractions
-                , checkNonEmpty UnsolvedMetaVariables    unsolvedMetas
-                , checkNonEmpty UnsolvedConstraints      unsolvedConstraints ]
-
-getAllWarnings' :: WhichWarnings -> IgnoreFlags -> TCM [TCWarning]
-getAllWarnings' ww ifs = do
-  unsolved            <- getAllUnsolved
-  collectedTCWarnings <- use stTCWarnings
-
-  fmap (filter ((<= ww) . classifyWarning . tcWarning))
-    $ applyFlagsToTCWarnings ifs $ reverse
-    $ unsolved ++ collectedTCWarnings
 
 getAllWarnings :: WhichWarnings -> IgnoreFlags -> TCM MaybeWarnings
 getAllWarnings ww ifs = do
@@ -973,6 +952,7 @@ buildInterface file topLevel syntaxInfo pragmas = do
       , iPragmaOptions   = pragmas
       , iPatternSyns     = patsyns
       , iWarnings        = warnings
+      , iCompiled        = Nothing
       }
     reportSLn "import.iface" 7 "  interface complete"
     return i

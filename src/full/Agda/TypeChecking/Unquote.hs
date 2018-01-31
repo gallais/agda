@@ -11,6 +11,7 @@ import Control.Monad.State (StateT(..), evalStateT, get, gets, put, modify)
 import Control.Monad.Reader (ReaderT(..), ask, asks)
 import Control.Monad.Writer (WriterT(..), execWriterT, runWriterT, tell)
 import Control.Monad.Trans (lift)
+import Control.Monad.IO.Class (liftIO)
 import Control.Monad
 
 import Data.Char
@@ -19,6 +20,8 @@ import Data.Traversable (traverse)
 import Data.Map (Map)
 import qualified Data.Map as Map
 import Data.Word
+
+import System.Plugins.Load ( load_, LoadStatus(..) )
 
 import Agda.Syntax.Common
 import Agda.Syntax.Internal as I
@@ -510,7 +513,9 @@ evalTCM v = do
              , (f `isDef` primAgdaTCMGetType,            tcFun1 tcGetType            u)
              , (f `isDef` primAgdaTCMGetDefinition,      tcFun1 tcGetDefinition      u)
              , (f `isDef` primAgdaTCMIsMacro,            tcFun1 tcIsMacro            u)
-             , (f `isDef` primAgdaTCMFreshName,          tcFun1 tcFreshName          u) ]
+             , (f `isDef` primAgdaTCMFreshName,          tcFun1 tcFreshName          u)
+             , (f `isDef` primAgdaTCMLiftIO,             tcFun1 tcLiftIO             u)
+             ]
              failEval
     I.Def f [u, v] ->
       choice [ (f `isDef` primAgdaTCMUnify,      tcFun2 tcUnify      u v)
@@ -592,6 +597,21 @@ evalTCM v = do
     tcFreshName s = do
       m <- currentModule
       quoteName . qualify m <$> freshName_ (unStr s)
+
+    allLiteralElims :: R.Elims -> Maybe [Literal]
+    allLiteralElims = mapM $ \ e -> case e of
+      R.Apply (Arg _ (R.Lit lit)) -> Just lit
+      _ -> Nothing
+
+    tcLiftIO :: R.Term -> TCM Term
+    tcLiftIO t@(R.Def qn elims) = case allLiteralElims elims of
+      Nothing -> __IMPOSSIBLE__  -- unquote t
+      Just lits -> do
+        (fp, s) <- undefined -- checkCompiled qn
+        LoadSuccess _ f <- liftIO $ load_ fp [] s
+        lit <- liftIO $ f lits
+        return $ Lit lit
+    tcLiftIO t = __IMPOSSIBLE__ -- unquote t -- have a look at the use of tcBlockOnMeta
 
     tcUnify :: R.Term -> R.Term -> TCM Term
     tcUnify u v = do

@@ -317,6 +317,7 @@ checkFunDefS t ai delayed extlam with i name withSub cs = do
              set funMacro (ismacro || Info.defMacro i == MacroDef) $
              emptyFunction
              { funClauses        = cs
+             , funProvide        = defAccess i == OutsideAccess
              , funCompiled       = Just cc
              , funDelayed        = delayed
              , funInv            = inv

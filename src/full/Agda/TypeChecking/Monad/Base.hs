@@ -701,12 +701,14 @@ data Interface = Interface
                         -- ^ Pragma options set in the file.
   , iPatternSyns     :: A.PatternSynDefns
   , iWarnings        :: [TCWarning]
+  , iCompiled        :: Maybe FilePath
+     -- ^ Object file corresponding to that module
   }
   deriving Show
 
 instance Pretty Interface where
   pretty (Interface sourceH importedM moduleN scope insideS signature display builtin
-                    foreignCode highlighting pragmaO patternS warnings) =
+                    foreignCode highlighting pragmaO patternS warnings compiled) =
     hang (text "Interface") 2 $ vcat
       [ text "source hash:"         <+> (pretty . show) sourceH
       , text "imported modules:"    <+> (pretty . show) importedM
@@ -721,6 +723,7 @@ instance Pretty Interface where
       , text "pragma options:"      <+> (pretty . show) pragmaO
       , text "pattern syns:"        <+> (pretty . show) patternS
       , text "warnings:"            <+> (pretty . show) warnings
+      , text "compiled in:"         <+> (pretty . show) compiled
       ]
 
 -- | Combines the source hash and the (full) hashes of the imported modules.
@@ -1458,6 +1461,8 @@ data Defn = Axiom
             -- ^ Returned by 'getConstInfo' if definition is abstract.
           | Function
             { funClauses        :: [Clause]
+            , funProvide        :: Bool
+              -- ^ Should we compile this definition as a type provider?
             , funCompiled       :: Maybe CompiledClauses
               -- ^ 'Nothing' while function is still type-checked.
               --   @Just cc@ after type and coverage checking and
@@ -1646,6 +1651,7 @@ recEtaEquality = etaEqualityToBool . recEtaEquality'
 emptyFunction :: Defn
 emptyFunction = Function
   { funClauses     = []
+  , funProvide     = False
   , funCompiled    = Nothing
   , funTreeless    = Nothing
   , funInv         = NotInjective
@@ -3252,8 +3258,8 @@ instance KillRange Defn where
     case def of
       Axiom -> Axiom
       AbstractDefn{} -> __IMPOSSIBLE__ -- only returned by 'getConstInfo'!
-      Function cls comp tt inv mut isAbs delayed proj flags term extlam with copat ->
-        killRange13 Function cls comp tt inv mut isAbs delayed proj flags term extlam with copat
+      Function cls prvd comp tt inv mut isAbs delayed proj flags term extlam with copat ->
+        killRange14 Function cls prvd comp tt inv mut isAbs delayed proj flags term extlam with copat
       Datatype a b c d e f g h       -> killRange8 Datatype a b c d e f g h
       Record a b c d e f g h i j     -> killRange10 Record a b c d e f g h i j
       Constructor a b c d e f g h    -> killRange8 Constructor a b c d e f g h

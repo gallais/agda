@@ -504,7 +504,7 @@ allNamesInScope' s =
 
 -- | Returns the scope's non-private names.
 exportedNamesInScope :: InScope a => Scope -> ThingsInScope a
-exportedNamesInScope = namesInScope [PublicNS, ImportedNS, OnlyQualifiedNS]
+exportedNamesInScope = namesInScope [PublicNS, OutsideNS, ImportedNS, OnlyQualifiedNS]
 
 namesInScope :: InScope a => [NameSpaceId] -> Scope -> ThingsInScope a
 namesInScope ids s =

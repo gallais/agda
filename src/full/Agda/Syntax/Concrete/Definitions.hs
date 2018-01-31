@@ -826,7 +826,7 @@ niceDeclarations ds = do
       Abstract  _ ds       -> concatMap declaredNames ds
       Private _ _ ds       -> concatMap declaredNames ds
       InstanceB _ ds       -> concatMap declaredNames ds
-      Compile _ ds         -> concatMap declaredNames ds
+      Compile   _ ds       -> concatMap declaredNames ds
       Macro     _ ds       -> concatMap declaredNames ds
       Postulate _ ds       -> concatMap declaredNames ds
       Primitive _ ds       -> concatMap declaredNames ds

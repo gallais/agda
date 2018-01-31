@@ -4,7 +4,7 @@
 --   Haskell functions have the right type.
 
 module Agda.Compiler.MAlonzo.HaskellTypes
-  ( haskellType
+  ( getHsType', haskellType, haskellType'
   , checkConstructorCount
   , hsTelApproximation, hsTelApproximation'
   ) where
