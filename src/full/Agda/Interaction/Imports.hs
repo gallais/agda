@@ -361,9 +361,7 @@ getInterface' x isMain = do
         (_, SomeWarnings w)           -> return ()
         _                             -> storeDecodedModule i
 
-      -- overwrite the @iCompiled@ with the obtained filename
-      let i' = i -- { iCompiled = Just mfp }
-      return (i', wt)
+      return (i, wt)
 
 -- | Check whether interface file exists and is in cache
 --   in the correct version (as testified by the interface file hash).
@@ -838,12 +836,12 @@ createInterface file mname isMain = Bench.billTo [Bench.TopModule mname] $
         -- encountered), so the interface should be written out.
         let ifile = filePath $ toIFile file
 
-        writeInterface ifile i
-
         reportSLn "import.iface.provide" 7 $ "Compiling provider."
         -- Compilation of type providers
         provide i
         reportSLn "import.iface.provide" 7 $ "Done Compiling provider."
+
+        writeInterface ifile i
 
     reportSLn "import.iface.create" 7 $ "Finished (or skipped) writing to interface file."
 
