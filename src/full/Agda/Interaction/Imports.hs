@@ -838,10 +838,10 @@ createInterface file mname isMain = Bench.billTo [Bench.TopModule mname] $
 
         reportSLn "import.iface.provide" 7 $ "Compiling provider."
         -- Compilation of type providers
-        provide i
+        prvd <- provide i
         reportSLn "import.iface.provide" 7 $ "Done Compiling provider."
 
-        writeInterface ifile i
+        writeInterface ifile $ i { iCompiled = Just prvd }
 
     reportSLn "import.iface.create" 7 $ "Finished (or skipped) writing to interface file."
 

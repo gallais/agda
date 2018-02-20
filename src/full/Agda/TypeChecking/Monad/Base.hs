@@ -701,7 +701,7 @@ data Interface = Interface
                         -- ^ Pragma options set in the file.
   , iPatternSyns     :: A.PatternSynDefns
   , iWarnings        :: [TCWarning]
-  , iCompiled        :: Maybe FilePath
+  , iCompiled        :: Maybe (FilePath, Map QName String)
      -- ^ Object file corresponding to that module
   }
   deriving Show

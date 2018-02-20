@@ -40,8 +40,9 @@ import Agda.Utils.Impossible
 
 -- The entrypoint
 
-provide :: Interface -> TCM ()
+provide :: Interface -> TCM (FilePath, Map QName String)
 provide i = do
+  liftIO $ writeIORef phoneBook Map.empty
   bTypes <- builtinTypes
   locallyState stBackends (providerBackend :) $ do
     visitModule $ ModuleInfo
@@ -49,8 +50,10 @@ provide i = do
                 , miWarnings   = False
                 }
     callBackend (backendName providerBackend') NotMain i
+  pb <- liftIO $ readIORef phoneBook
+  return ("", pb) -- TODO: not sure how to grab the file's name reliably
 
-builtinTypes :: TCM ([(HS.Type, String)])
+builtinTypes :: TCM [(HS.Type, String)]
 builtinTypes = do
   qn <- catMaybes <$> mapM (fmap sequenceA . traverse getBuiltinName)
                    [ ("Nat"   , builtinNat)
@@ -112,6 +115,9 @@ isLiteral bTypes tof ty = case ty of
       let prefix = case tof of { To -> "to";  From{} -> "" }
       in HS.Var . rtePrefix $ prefix ++ "Lit" ++ lit
 
+phoneBook :: IORef (Map QName String)
+phoneBook = unsafePerformIO (newIORef Map.empty)
+
 nameSupply :: IORef Integer
 nameSupply = unsafePerformIO (newIORef 0)
 
@@ -155,7 +161,8 @@ providerWrapper t qn = do
   hty  <- haskellType' t
   bTypes <- builtinTypes
   wrap <- compileWrapper bTypes hty (HS.Var (HS.UnQual (dname qn)))
-  let pn = unqhname "provide" qn
+  let pn@(HS.Ident rawpn) = unqhname "provide" qn
+  liftIO $ modifyIORef' phoneBook (Map.insert qn rawpn)
   return [ HS.TypeSig [pn] (HS.TyFun literals (HS.TyApp (HS.TyApp (HS.TyCon ioName) (HS.TyCon (HS.UnQual (HS.Ident "AgdaAny")))) literal))
          , HS.FunBind [HS.Match pn [] (HS.UnGuardedRhs wrap) Nothing]
          ]
