@@ -204,6 +204,7 @@ tokens :-
 <0,code> "="            { symbol SymEqual }
 <0,code> "_"            { symbol SymUnderscore }
 <0,code> "?"            { symbol SymQuestionMark }
+<0,code> "!"            { symbol SymBang }
 <0,code> "|"            { symbol SymBar }
 <0,code> "(|" /[$white] { symbol SymOpenIdiomBracket }
 <0,code> "|)"           { symbol SymCloseIdiomBracket }

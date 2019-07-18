@@ -394,18 +394,19 @@ instance PrettyTCM TypeError where
              pwords "(did you supply too many arguments?)"
       where
       kindOfPattern = \case
-        A.VarP{}    -> "variable"
-        A.ConP{}    -> "constructor"
-        A.ProjP{}   -> __IMPOSSIBLE__
-        A.DefP{}    -> __IMPOSSIBLE__
-        A.WildP{}   -> "wildcard"
-        A.DotP{}    -> "dot"
-        A.AbsurdP{} -> "absurd"
-        A.LitP{}    -> "literal"
-        A.RecP{}    -> "record"
-        A.WithP{}   -> "with"
-        A.EqualP{}  -> "equality"
-        A.AsP _ _ p -> kindOfPattern p
+        A.VarP{}        -> "variable"
+        A.ConP{}        -> "constructor"
+        A.ProjP{}       -> __IMPOSSIBLE__
+        A.DefP{}        -> __IMPOSSIBLE__
+        A.WildP{}       -> "wildcard"
+        A.StrictWildP{} -> "wildcard"
+        A.DotP{}        -> "dot"
+        A.AbsurdP{}     -> "absurd"
+        A.LitP{}        -> "literal"
+        A.RecP{}        -> "record"
+        A.WithP{}       -> "with"
+        A.EqualP{}      -> "equality"
+        A.AsP _ _ p     -> kindOfPattern p
         A.PatternSynP{} -> __IMPOSSIBLE__
 
     WrongNumberOfConstructorArguments c expect given -> fsep $

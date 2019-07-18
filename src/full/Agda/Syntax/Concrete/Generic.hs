@@ -114,6 +114,7 @@ instance ExprLike Expr where
      Ident{}            -> f $ e0
      Lit{}              -> f $ e0
      QuestionMark{}     -> f $ e0
+     StrictUnderscore{}        -> f $ e0
      Underscore{}       -> f $ e0
      RawApp r es        -> f $ RawApp r               $ mapE es
      App r e es         -> f $ App r       (mapE e)   $ mapE es

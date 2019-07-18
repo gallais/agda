@@ -182,6 +182,7 @@ import Agda.Utils.Impossible
     '='                       { TokSymbol SymEqual $$ }
     '_'                       { TokSymbol SymUnderscore $$ }
     '?'                       { TokSymbol SymQuestionMark $$ }
+    '!'                       { TokSymbol SymBang $$ }
     '->'                      { TokSymbol SymArrow $$ }
     '\\'                      { TokSymbol SymLambda $$ }
     '@'                       { TokSymbol SymAs $$ }
@@ -312,6 +313,7 @@ Token
     | '='                       { TokSymbol SymEqual $1 }
     | '_'                       { TokSymbol SymUnderscore $1 }
     | '?'                       { TokSymbol SymQuestionMark $1 }
+    | '!'                       { TokSymbol SymBang $1 }
     | '->'                      { TokSymbol SymArrow $1 }
     | '\\'                      { TokSymbol SymLambda $1 }
     | '@'                       { TokSymbol SymAs $1 }
@@ -713,6 +715,7 @@ Expr3NoCurly :: { Expr }
 Expr3NoCurly
     : '?'                               { QuestionMark (getRange $1) Nothing }
     | '_'                               { Underscore (getRange $1) Nothing }
+    | '!'                               { StrictUnderscore (getRange $1) }
     | 'Prop'                            { Prop (getRange $1) }
     | 'Set'                             { Set (getRange $1) }
     | 'quote'                           { Quote (getRange $1) }
@@ -2136,6 +2139,7 @@ exprToPattern e = do
         Paren r e               -> ParenP r
                                         <$> exprToPattern e
         Underscore r _          -> return $ WildP r
+        StrictUnderscore r      -> return $ StrictWildP r
         Absurd r                -> return $ AbsurdP r
         As r x e                -> AsP r x <$> exprToPattern e
         Dot r (HiddenArg _ e)   -> return $ HiddenP r $ fmap (DotP r) e

@@ -100,6 +100,8 @@ data Expr
     --   'metaNumber' to 'Nothing' while keeping the 'InteractionId'.
   | Underscore   MetaInfo
     -- ^ Meta variable for hidden argument (must be inferred locally).
+  | StrictUnderscore    MetaInfo
+    -- ^ Meta variable for hidden argument (must be inferred locally).
   | Dot ExprInfo Expr                  -- ^ @.e@, for postfix projection.
   | App  AppInfo Expr (NamedArg Expr)  -- ^ Ordinary (binary) application.
   | WithApp ExprInfo Expr [Expr]       -- ^ With application.
@@ -472,6 +474,8 @@ data Pattern' e
   | WildP PatInfo
     -- ^ Underscore pattern entered by user.
     --   Or generated at type checking for implicit arguments.
+  | StrictWildP PatInfo
+    -- ^ Strict underscore pattern entered by user.
   | AsP PatInfo BindName (Pattern' e)
   | DotP PatInfo e
     -- ^ Dot pattern @.e@
@@ -577,7 +581,10 @@ instance Eq Declaration where
 
 instance Underscore Expr where
   underscore   = Underscore emptyMetaInfo
+  strictUnderscore = StrictUnderscore emptyMetaInfo
+
   isUnderscore = __IMPOSSIBLE__
+  isStrictUnderscore = __IMPOSSIBLE__
 
 instance LensHiding LamBinding where
   getHiding   (DomainFree _ x) = getHiding x
@@ -608,6 +615,7 @@ instance HasRange Expr where
     getRange (Lit l)               = getRange l
     getRange (QuestionMark i _)    = getRange i
     getRange (Underscore  i)       = getRange i
+    getRange (StrictUnderscore i)  = getRange i
     getRange (Dot i _)             = getRange i
     getRange (App i _ _)           = getRange i
     getRange (WithApp i _ _)       = getRange i
@@ -661,6 +669,7 @@ instance HasRange (Pattern' e) where
     getRange (ProjP i _ _)       = getRange i
     getRange (DefP i _ _)        = getRange i
     getRange (WildP i)           = getRange i
+    getRange (StrictWildP i)     = getRange i
     getRange (AsP i _ _)         = getRange i
     getRange (DotP i _)          = getRange i
     getRange (AbsurdP i)         = getRange i
@@ -707,6 +716,7 @@ instance SetRange (Pattern' a) where
     setRange r (ProjP _ o ns)       = ProjP (PatRange r) o ns
     setRange r (DefP _ ns as)       = DefP (PatRange r) ns as -- (setRange r n) as
     setRange r (WildP _)            = WildP (PatRange r)
+    setRange r (StrictWildP _)      = StrictWildP (PatRange r)
     setRange r (AsP _ n p)          = AsP (PatRange r) (setRange r n) p
     setRange r (DotP _ e)           = DotP (PatRange r) e
     setRange r (AbsurdP _)          = AbsurdP (PatRange r)
@@ -738,6 +748,7 @@ instance KillRange Expr where
   killRange (Lit l)                = killRange1 Lit l
   killRange (QuestionMark i ii)    = killRange2 QuestionMark i ii
   killRange (Underscore  i)        = killRange1 Underscore i
+  killRange (StrictUnderscore  i)  = killRange1 StrictUnderscore i
   killRange (Dot i e)              = killRange2 Dot i e
   killRange (App i e1 e2)          = killRange3 App i e1 e2
   killRange (WithApp i e es)       = killRange3 WithApp i e es
@@ -798,6 +809,7 @@ instance KillRange e => KillRange (Pattern' e) where
   killRange (ProjP i o a)       = killRange3 ProjP i o a
   killRange (DefP i a b)        = killRange3 DefP i a b
   killRange (WildP i)           = killRange1 WildP i
+  killRange (StrictWildP i)     = killRange1 StrictWildP i
   killRange (AsP i a b)         = killRange3 AsP i a b
   killRange (DotP i a)          = killRange2 DotP i a
   killRange (AbsurdP i)         = killRange1 AbsurdP i
@@ -931,6 +943,7 @@ instance AllNames Expr where
   allNames Lit{}                   = Seq.empty
   allNames QuestionMark{}          = Seq.empty
   allNames Underscore{}            = Seq.empty
+  allNames StrictUnderscore{}             = Seq.empty
   allNames (Dot _ e)               = allNames e
   allNames (App _ e1 e2)           = allNames e1 >< allNames e2
   allNames (WithApp _ e es)        = allNames e >< allNames es
@@ -1063,6 +1076,7 @@ patternToExpr = \case
   ProjP _ o ds       -> Proj o ds
   DefP _ fs ps       -> Def (headAmbQ fs) `app` map (fmap (fmap patternToExpr)) ps
   WildP _            -> Underscore emptyMetaInfo
+  StrictWildP _      -> StrictUnderscore emptyMetaInfo
   AsP _ _ p          -> patternToExpr p
   DotP _ e           -> e
   AbsurdP _          -> Underscore emptyMetaInfo  -- TODO: could this happen?
@@ -1120,7 +1134,8 @@ instance SubstExpr Expr where
     Con _                 -> e
     Lit _                 -> e
     QuestionMark{}        -> e
-    Underscore   _        -> e
+    Underscore{}          -> e
+    StrictUnderscore{}    -> e
     Dot i e               -> Dot i (substExpr s e)
     App  i e e'           -> App i (substExpr s e) (substExpr s e')
     WithApp i e es        -> WithApp i (substExpr s e) (substExpr s es)

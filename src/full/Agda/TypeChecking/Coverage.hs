@@ -1286,7 +1286,7 @@ split' checkEmpty ind allowPartialCover fixtarget
 
       computeLitNeighborhoods = do
         typeOk <- liftTCM $ do
-          t' <- litType $ headWithDefault {-'-} __IMPOSSIBLE__ plits
+          t' <- litType $ headWithDefault __IMPOSSIBLE__ plits
           liftTCM $ dontAssignMetas $ tryConversion $ equalType (unDom t) t'
         unless typeOk $ throwError . NotADatatype =<< do liftTCM $ buildClosure (unDom t)
         ns <- forM plits $ \lit -> do

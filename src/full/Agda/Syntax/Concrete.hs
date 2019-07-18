@@ -122,6 +122,7 @@ data Expr
   | Lit Literal                                -- ^ ex: @1@ or @\"foo\"@
   | QuestionMark Range (Maybe Nat)             -- ^ ex: @?@ or @{! ... !}@
   | Underscore Range (Maybe String)            -- ^ ex: @_@ or @_A_5@
+  | StrictUnderscore Range                            -- ^ @!@ aka strict @_@
   | RawApp Range [Expr]                        -- ^ before parsing operators
   | App Range Expr (NamedArg Expr)             -- ^ ex: @e e@, @e {e}@, or @e {x = e}@
   | OpApp Range QName (Set A.Name)
@@ -183,6 +184,7 @@ data Pattern
   | InstanceP Range (Named_ Pattern)       -- ^ @{{p}}@ or @{{x = p}}@
   | ParenP Range Pattern                   -- ^ @(p)@
   | WildP Range                            -- ^ @_@
+  | StrictWildP Range                      -- ^ @!@
   | AbsurdP Range                          -- ^ @()@
   | AsP Range Name Pattern                 -- ^ @x\@p@ unused
   | DotP Range Expr                        -- ^ @.e@
@@ -565,6 +567,7 @@ instance HasRange Expr where
       Lit x              -> getRange x
       QuestionMark r _   -> r
       Underscore r _     -> r
+      StrictUnderscore r        -> r
       App r _ _          -> r
       RawApp r _         -> r
       OpApp r _ _ _      -> r
@@ -710,6 +713,7 @@ instance HasRange Pattern where
   getRange (RawAppP r _)      = r
   getRange (ParenP r _)       = r
   getRange (WildP r)          = r
+  getRange (StrictWildP r)    = r
   getRange (AsP r _ _)        = r
   getRange (AbsurdP r)        = r
   getRange (LitP l)           = getRange l
@@ -732,6 +736,7 @@ instance SetRange Pattern where
   setRange r (RawAppP _ ps)     = RawAppP r ps
   setRange r (ParenP _ p)       = ParenP r p
   setRange r (WildP _)          = WildP r
+  setRange r (StrictWildP _)    = StrictWildP r
   setRange r (AsP _ x p)        = AsP r (setRange r x) p
   setRange r (AbsurdP _)        = AbsurdP r
   setRange r (LitP l)           = LitP (setRange r l)
@@ -797,6 +802,7 @@ instance KillRange Expr where
   killRange (Lit l)              = killRange1 Lit l
   killRange (QuestionMark _ n)   = QuestionMark noRange n
   killRange (Underscore _ n)     = Underscore noRange n
+  killRange (StrictUnderscore _)        = StrictUnderscore noRange
   killRange (RawApp _ e)         = killRange1 (RawApp noRange) e
   killRange (App _ e a)          = killRange2 (App noRange) e a
   killRange (OpApp _ n ns o)     = killRange3 (OpApp noRange) n ns o
@@ -865,6 +871,7 @@ instance KillRange Pattern where
   killRange (InstanceP _ n)   = killRange1 (InstanceP noRange) n
   killRange (ParenP _ p)      = killRange1 (ParenP noRange) p
   killRange (WildP _)         = WildP noRange
+  killRange (StrictWildP _)   = StrictWildP noRange
   killRange (AbsurdP _)       = AbsurdP noRange
   killRange (AsP _ n p)       = killRange2 (AsP noRange) n p
   killRange (DotP _ e)        = killRange1 (DotP noRange) e
@@ -918,6 +925,7 @@ instance NFData Expr where
   rnf (Lit a)            = rnf a
   rnf (QuestionMark _ a) = rnf a
   rnf (Underscore _ a)   = rnf a
+  rnf (StrictUnderscore _)      = ()
   rnf (RawApp _ a)       = rnf a
   rnf (App _ a b)        = rnf a `seq` rnf b
   rnf (OpApp _ a b c)    = rnf a `seq` rnf b `seq` rnf c
@@ -957,23 +965,24 @@ instance NFData Expr where
 -- | Ranges are not forced.
 
 instance NFData Pattern where
-  rnf (IdentP a) = rnf a
-  rnf (QuoteP _) = ()
-  rnf (AppP a b) = rnf a `seq` rnf b
-  rnf (RawAppP _ a) = rnf a
+  rnf (IdentP a)       = rnf a
+  rnf (QuoteP _)       = ()
+  rnf (AppP a b)       = rnf a `seq` rnf b
+  rnf (RawAppP _ a)    = rnf a
   rnf (OpAppP _ a b c) = rnf a `seq` rnf b `seq` rnf c
-  rnf (HiddenP _ a) = rnf a
-  rnf (InstanceP _ a) = rnf a
-  rnf (ParenP _ a) = rnf a
-  rnf (WildP _) = ()
-  rnf (AbsurdP _) = ()
-  rnf (AsP _ a b) = rnf a `seq` rnf b
-  rnf (DotP _ a) = rnf a
-  rnf (LitP a) = rnf a
-  rnf (RecP _ a) = rnf a
-  rnf (EqualP _ es) = rnf es
-  rnf (EllipsisP _) = ()
-  rnf (WithP _ a) = rnf a
+  rnf (HiddenP _ a)    = rnf a
+  rnf (InstanceP _ a)  = rnf a
+  rnf (ParenP _ a)     = rnf a
+  rnf (WildP _)        = ()
+  rnf (StrictWildP _)  = ()
+  rnf (AbsurdP _)      = ()
+  rnf (AsP _ a b)      = rnf a `seq` rnf b
+  rnf (DotP _ a)       = rnf a
+  rnf (LitP a)         = rnf a
+  rnf (RecP _ a)       = rnf a
+  rnf (EqualP _ es)    = rnf es
+  rnf (EllipsisP _)    = ()
+  rnf (WithP _ a)      = rnf a
 
 -- | Ranges are not forced.
 

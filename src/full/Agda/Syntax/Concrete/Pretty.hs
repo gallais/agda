@@ -221,6 +221,7 @@ instance Pretty Expr where
             QuestionMark _ n -> "?" <> maybe empty (text . show) n
             Underscore _ n   -> maybe underscore text n
 --          Underscore _ n   -> underscore <> maybe empty (text . show) n
+            StrictUnderscore _      -> "!"
             App _ _ _        ->
                 case appView e of
                     AppView e1 args     ->
@@ -656,6 +657,7 @@ instance Pretty Pattern where
             InstanceP _ p   -> dbraces $ pretty p
             ParenP _ p      -> parens $ pretty p
             WildP _         -> underscore
+            StrictWildP _   -> strictUnderscore
             AsP _ x p       -> pretty x <> "@" <> pretty p
             DotP _ p        -> "." <> pretty p
             AbsurdP _       -> "()"

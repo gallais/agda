@@ -875,19 +875,20 @@ stripImplicits params ps = do
           stripArg a = fmap (fmap stripPat) a
 
           stripPat p = case p of
-            A.VarP _      -> p
-            A.ConP i c ps -> A.ConP i c $ stripArgs True ps
-            A.ProjP{}     -> p
-            A.DefP _ _ _  -> p
-            A.DotP _ e    -> p
-            A.WildP _     -> p
-            A.AbsurdP _   -> p
-            A.LitP _      -> p
-            A.AsP i x p   -> A.AsP i x $ stripPat p
+            A.VarP _            -> p
+            A.ConP i c ps       -> A.ConP i c $ stripArgs True ps
+            A.ProjP{}           -> p
+            A.DefP _ _ _        -> p
+            A.DotP _ e          -> p
+            A.WildP _           -> p
+            A.StrictWildP _     -> p
+            A.AbsurdP _         -> p
+            A.LitP _            -> p
+            A.AsP i x p         -> A.AsP i x $ stripPat p
             A.PatternSynP _ _ _ -> __IMPOSSIBLE__ -- p
-            A.RecP i fs   -> A.RecP i $ map (fmap stripPat) fs  -- TODO Andreas: is this right?
-            A.EqualP{}    -> p -- EqualP cannot be blanked.
-            A.WithP i p   -> A.WithP i $ stripPat p -- TODO #2822: right?
+            A.RecP i fs         -> A.RecP i $ map (fmap stripPat) fs  -- TODO Andreas: is this right?
+            A.EqualP{}          -> p -- EqualP cannot be blanked.
+            A.WithP i p         -> A.WithP i $ stripPat p -- TODO #2822: right?
 
           varOrDot A.VarP{}      = True
           varOrDot A.WildP{}     = True
@@ -941,19 +942,20 @@ instance BlankVars A.LHSCore where
 
 instance BlankVars A.Pattern where
   blank bound p = case p of
-    A.VarP _      -> p   -- do not blank pattern vars
-    A.ConP c i ps -> A.ConP c i $ blank bound ps
-    A.ProjP{}     -> p
-    A.DefP i f ps -> A.DefP i f $ blank bound ps
-    A.DotP i e    -> A.DotP i $ blank bound e
-    A.WildP _     -> p
-    A.AbsurdP _   -> p
-    A.LitP _      -> p
-    A.AsP i n p   -> A.AsP i n $ blank bound p
+    A.VarP _            -> p   -- do not blank pattern vars
+    A.ConP c i ps       -> A.ConP c i $ blank bound ps
+    A.ProjP{}           -> p
+    A.DefP i f ps       -> A.DefP i f $ blank bound ps
+    A.DotP i e          -> A.DotP i $ blank bound e
+    A.WildP _           -> p
+    A.StrictWildP _     -> p
+    A.AbsurdP _         -> p
+    A.LitP _            -> p
+    A.AsP i n p         -> A.AsP i n $ blank bound p
     A.PatternSynP _ _ _ -> __IMPOSSIBLE__
-    A.RecP i fs   -> A.RecP i $ blank bound fs
-    A.EqualP{}    -> p
-    A.WithP i p   -> A.WithP i (blank bound p)
+    A.RecP i fs         -> A.RecP i $ blank bound fs
+    A.EqualP{}          -> p
+    A.WithP i p         -> A.WithP i (blank bound p)
 
 instance BlankVars A.Expr where
   blank bound e = case e of
@@ -965,7 +967,8 @@ instance BlankVars A.Expr where
     A.Con _                -> e
     A.Lit _                -> e
     A.QuestionMark{}       -> e
-    A.Underscore _         -> e
+    A.Underscore{}         -> e
+    A.StrictUnderscore{}   -> e
     A.Dot i e              -> A.Dot i $ blank bound e
     A.App i e1 e2          -> uncurry (A.App i) $ blank bound (e1, e2)
     A.WithApp i e es       -> uncurry (A.WithApp i) $ blank bound (e, es)
@@ -1035,6 +1038,7 @@ instance Binder A.Pattern where
     A.ProjP{}           -> empty
     A.DefP _ _ _        -> empty
     A.WildP{}           -> empty
+    A.StrictWildP{}     -> empty
     A.DotP{}            -> empty
     A.AbsurdP{}         -> empty
     A.LitP{}            -> empty

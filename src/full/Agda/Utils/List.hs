@@ -22,6 +22,12 @@ import Agda.Utils.Tuple
 snoc :: [a] -> a -> [a]
 snoc xs x = xs ++ [x]
 
+-- | Case distinction for singleton lists, with list first.
+caseSingleton :: [a] -> b -> (a -> b) -> b
+caseSingleton xs fail singleton = case xs of
+  [x] -> singleton x
+  _ -> fail
+
 -- | Case distinction for lists, with list first.
 --   Cf. 'Agda.Utils.Null.ifNull'.
 caseList :: [a] -> b -> (a -> [a] -> b) -> b

@@ -530,6 +530,7 @@ data PatOrigin
   | PatOVar Name       -- ^ User wrote a variable pattern
   | PatODot            -- ^ User wrote a dot pattern
   | PatOWild           -- ^ User wrote a wildcard pattern
+  | PatOStrictWild     -- ^ User wrote a strict wildcard pattern
   | PatOCon            -- ^ User wrote a constructor pattern
   | PatORec            -- ^ User wrote a record pattern
   | PatOLit            -- ^ User wrote a literal pattern
@@ -633,15 +634,16 @@ fromConPatternInfo = maybe ConOCon patToConO . conPRecord
   where
     patToConO :: PatOrigin -> ConOrigin
     patToConO = \case
-      PatOSystem -> ConOSystem
-      PatOSplit  -> ConOSplit
-      PatOVar{}  -> ConOSystem
-      PatODot    -> ConOSystem
-      PatOWild   -> ConOSystem
-      PatOCon    -> ConOCon
-      PatORec    -> ConORec
-      PatOLit    -> __IMPOSSIBLE__
-      PatOAbsurd -> ConOSystem
+      PatOSystem     -> ConOSystem
+      PatOSplit      -> ConOSplit
+      PatOVar{}      -> ConOSystem
+      PatODot        -> ConOSystem
+      PatOWild       -> ConOSystem
+      PatOStrictWild -> ConOSystem
+      PatOCon        -> ConOCon
+      PatORec        -> ConORec
+      PatOLit        -> __IMPOSSIBLE__
+      PatOAbsurd     -> ConOSystem
 
 -- | Extract pattern variables in left-to-right order.
 --   A 'DotP' is also treated as variable (see docu for 'Clause').

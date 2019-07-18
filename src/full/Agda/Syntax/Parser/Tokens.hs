@@ -42,7 +42,7 @@ layoutKeywords =
 data Symbol
         = SymDot | SymSemi | SymVirtualSemi | SymBar
         | SymColon | SymArrow | SymEqual | SymLambda
-        | SymUnderscore | SymQuestionMark   | SymAs
+        | SymUnderscore | SymQuestionMark | SymBang | SymAs
         | SymOpenParen        | SymCloseParen
         | SymOpenIdiomBracket | SymCloseIdiomBracket | SymEmptyIdiomBracket
         | SymDoubleOpenBrace  | SymDoubleCloseBrace

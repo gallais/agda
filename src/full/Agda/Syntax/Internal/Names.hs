@@ -187,6 +187,7 @@ instance NamesIn (A.Pattern' a) where
     A.ProjP _ _ d          -> namesIn d
     A.DefP _ f args        -> namesIn (f, args)
     A.WildP{}              -> Set.empty
+    A.StrictWildP{}        -> Set.empty
     A.AsP _ _ p            -> namesIn p
     A.AbsurdP{}            -> Set.empty
     A.LitP l               -> namesIn l

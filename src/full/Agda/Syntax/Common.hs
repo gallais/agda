@@ -1342,18 +1342,26 @@ xs `withNamedArgsFrom` args =
 ---------------------------------------------------------------------------
 
 class Eq a => Underscore a where
-  underscore   :: a
+  underscore       :: a
+  strictUnderscore :: a
+
   isUnderscore :: a -> Bool
   isUnderscore = (== underscore)
 
+  isStrictUnderscore :: a -> Bool
+  isStrictUnderscore = (== strictUnderscore)
+
 instance Underscore String where
-  underscore = "_"
+  underscore       = "_"
+  strictUnderscore = "!"
 
 instance Underscore ByteString where
   underscore = ByteString.pack underscore
+  strictUnderscore = ByteString.pack strictUnderscore
 
 instance Underscore Doc where
   underscore = text underscore
+  strictUnderscore = text strictUnderscore
 
 ---------------------------------------------------------------------------
 -- * Named arguments

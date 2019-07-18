@@ -4,7 +4,7 @@ module Agda.TypeChecking.Rules.LHS.Problem
        , FlexChoice(..) , ChooseFlex(..)
        , ProblemEq(..) , Problem(..) , problemEqs
        , problemRestPats, problemCont, problemInPats
-       , AsBinding(..) , DotPattern(..) , AbsurdPattern(..)
+       , AsBinding(..) , DotPattern(..) , AbsurdPattern(..), StrictWildPattern(..)
        , LHSState(..) , lhsTel , lhsOutPat , lhsProblem , lhsTarget
        ) where
 
@@ -190,9 +190,10 @@ problemCont f p = f (_problemCont p) <&> \x -> p {_problemCont = x}
 problemInPats :: Problem a -> [A.Pattern]
 problemInPats = map problemInPat . (^. problemEqs)
 
-data AsBinding = AsB Name Term Type
-data DotPattern = Dot A.Expr Term (Dom Type)
-data AbsurdPattern = Absurd Range Type
+data AsBinding         = AsB Name Term Type
+data DotPattern        = Dot A.Expr Term (Dom Type)
+data AbsurdPattern     = Absurd Range Type
+data StrictWildPattern = StrictWild Range Type
 
 -- | State worked on during the main loop of checking a lhs.
 --   [Ulf Norell's PhD, page. 35]

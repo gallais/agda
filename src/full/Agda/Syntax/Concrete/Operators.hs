@@ -536,6 +536,7 @@ parsePat prs p = case p of
     DotP r e         -> return $ DotP r e
     ParenP r p       -> fullParen' <$> parsePat prs p
     WildP _          -> return p
+    StrictWildP _    -> return p
     AbsurdP _        -> return p
     LitP _           -> return p
     QuoteP _         -> return p

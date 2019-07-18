@@ -50,13 +50,14 @@ instance MapNamedArgPattern NAP where
   mapNamedArgPattern f p =
     case namedArg p of
       -- no sub patterns:
-      VarP{}    -> f p
-      WildP{}   -> f p
-      DotP{}    -> f p
-      EqualP{}  -> f p
-      LitP{}    -> f p
-      AbsurdP{} -> f p
-      ProjP{}   -> f p
+      VarP{}        -> f p
+      WildP{}       -> f p
+      StrictWildP{} -> f p
+      DotP{}        -> f p
+      EqualP{}      -> f p
+      LitP{}        -> f p
+      AbsurdP{}     -> f p
+      ProjP{}       -> f p
       -- list of NamedArg subpatterns:
       ConP i qs ps       -> f $ setNamedArg p $ ConP i qs $ mapNamedArgPattern f ps
       DefP i qs ps       -> f $ setNamedArg p $ DefP i qs $ mapNamedArgPattern f ps
@@ -146,6 +147,7 @@ instance APatternLike a (Pattern' a) where
       VarP _             -> mempty
       ProjP _ _ _        -> mempty
       WildP _            -> mempty
+      StrictWildP _      -> mempty
       DotP _ _           -> mempty
       AbsurdP _          -> mempty
       LitP _             -> mempty
@@ -157,6 +159,7 @@ instance APatternLike a (Pattern' a) where
       -- Non-recursive cases:
       A.VarP{}             -> return p
       A.WildP{}            -> return p
+      A.StrictWildP{}      -> return p
       A.DotP{}             -> return p
       A.LitP{}             -> return p
       A.AbsurdP{}          -> return p
@@ -208,6 +211,7 @@ patternVars p = foldAPattern f p `appEndo` []
     A.DefP        {} -> mempty
     A.ProjP       {} -> mempty
     A.WildP       {} -> mempty
+    A.StrictWildP {} -> mempty
     A.DotP        {} -> mempty
     A.AbsurdP     {} -> mempty
     A.EqualP      {} -> mempty
@@ -275,6 +279,7 @@ substPattern' subE s = mapAPattern $ \ p -> case p of
   RecP _ _          -> p
   ProjP _ _ _       -> p
   WildP _           -> p
+  StrictWildP _     -> p
   AbsurdP _         -> p
   LitP _            -> p
   DefP _ _ _        -> p

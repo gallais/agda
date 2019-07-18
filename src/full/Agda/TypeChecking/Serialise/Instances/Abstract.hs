@@ -154,6 +154,7 @@ instance EmbPrj a => EmbPrj (A.Pattern' a) where
   icod_ (A.RecP p a)          = icodeN 10 (A.RecP p) a
   icod_ (A.EqualP _ a)        = __IMPOSSIBLE__
   icod_ (A.WithP i a)         = icodeN 11 (A.WithP i) a
+  icod_ t@(A.StrictWildP p)   = icodeN 12 t
 
   value = vcase valu where
     valu [0, a]       = valuN A.VarP a
@@ -168,6 +169,7 @@ instance EmbPrj a => EmbPrj (A.Pattern' a) where
     valu [9, a, b]    = valuN (A.PatternSynP i) a b
     valu [10, a]      = valuN (A.RecP i) a
     valu [11, a]      = valuN (A.WithP i) a
+    valu [12]         = valuN (A.StrictWildP i)
     valu _            = malformed
 
     i = patNoRange

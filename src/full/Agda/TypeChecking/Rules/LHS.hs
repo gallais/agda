@@ -75,6 +75,7 @@ import Agda.TypeChecking.Rules.LHS.ProblemRest
 import Agda.TypeChecking.Rules.LHS.Unify
 import Agda.TypeChecking.Rules.LHS.Implicit
 import Agda.TypeChecking.Rules.Data
+import {-# SOURCE #-} Agda.TypeChecking.StrictWild ( WildSplit(..), wildSplit )
 
 import Agda.Utils.Except (MonadError(..), ExceptT, runExceptT)
 import Agda.Utils.Function
@@ -180,7 +181,7 @@ updateProblemEqs eqs = do
     update eq@(ProblemEq A.WildP{} _ _) = return []
     update eq@(ProblemEq p@A.ProjP{} _ _) = typeError $ IllformedProjectionPattern p
     update eq@(ProblemEq p v a) = reduce v >>= constructorForm >>= \case
-      Con c ci es -> do
+      redv@(Con c ci es) -> do
         let vs = fromMaybe __IMPOSSIBLE__ $ allApplyElims es
         -- we should only simplify equations between fully applied constructors
         contype <- getFullyAppliedConType c =<< reduce (unDom a)
@@ -192,7 +193,7 @@ updateProblemEqs eqs = do
         case p of
           A.AsP info x p' ->
             (ProblemEq (A.VarP x) v a :) <$> update (ProblemEq p' v a)
-          A.ConP cpi ambC ps -> do
+          A.ConP _ ambC ps -> do
             (c',_) <- disambiguateConstructor ambC d pars
 
             -- Issue #3014: If the constructor is forced but the user wrote a
@@ -228,7 +229,7 @@ updateProblemEqs eqs = do
 
             updates $ zipWith3 ProblemEq (map namedArg ps) (map unArg vs) bs
 
-          A.RecP pi fs -> do
+          A.RecP _ fs -> do
             axs <- recFields . theDef <$> getConstInfo d
 
             -- Andreas, 2018-09-06, issue #3122.
@@ -247,6 +248,15 @@ updateProblemEqs eqs = do
 
             let eqs = zipWith3 ProblemEq (map namedArg ps) (map unArg vs) bs
             updates eqs
+
+          A.StrictWildP r -> do
+            let cname = conName c
+            info <- getConstructorInfo cname
+            case info of
+              DataCon{}      -> pure []
+              RecordCon _ fs -> do
+                let pats = map (\ f -> FieldAssignment (nameConcrete $ qnameName $ unArg f) p) fs
+                update (ProblemEq (A.RecP r pats) redv a)
 
           _ -> return [eq]
 
@@ -281,7 +291,8 @@ problemAllVariables problem =
     -- need further splitting:
     isSolved A.ConP{}        = False
     isSolved A.LitP{}        = False
-    isSolved A.RecP{}        = False  -- record pattern
+    isSolved A.RecP{}        = False -- record pattern
+    isSolved A.StrictWildP{} = False -- these should have disappeared
     -- solved:
     isSolved A.VarP{}        = True
     isSolved A.WildP{}       = True
@@ -310,6 +321,7 @@ noShadowingOfConstructors mkCall eqs =
   where
   noShadowing (ProblemEq p _ (Dom{domInfo = info, unDom = El _ a})) = case snd $ asView p of
    A.WildP       {} -> return ()
+   A.StrictWildP {} -> return ()
    A.AbsurdP     {} -> return ()
    A.DotP        {} -> return ()
    A.EqualP      {} -> return ()
@@ -519,6 +531,7 @@ transferOrigins ps qs = do
     patOrigin A.ConP{}        = PatOCon
     patOrigin A.RecP{}        = PatORec
     patOrigin A.WildP{}       = PatOWild
+    patOrigin A.StrictWildP{} = PatOStrictWild
     patOrigin A.AbsurdP{}     = PatOAbsurd
     patOrigin A.LitP{}        = PatOLit
     patOrigin A.EqualP{}      = PatOCon --TODO: origin for EqualP
@@ -575,6 +588,7 @@ checkPatternLinearity eqs = do
         A.AsP _ x p ->
           check vars $ [ProblemEq (A.VarP x) u a, ProblemEq p u a] ++ eqs
         A.WildP{}       -> continue
+        A.StrictWildP{} -> continue
         A.DotP{}        -> continue
         A.AbsurdP{}     -> continue
         A.ConP{}        -> __IMPOSSIBLE__
@@ -845,10 +859,11 @@ splitStrategy = filter shouldSplit
   where
     shouldSplit :: ProblemEq -> Bool
     shouldSplit (ProblemEq p v a) = case snd $ asView p of
-      A.LitP{}    -> True
-      A.RecP{}    -> True
-      A.ConP{}    -> True
-      A.EqualP{}  -> True
+      A.LitP{}        -> True
+      A.RecP{}        -> True
+      A.ConP{}        -> True
+      A.EqualP{}      -> True
+      A.StrictWildP{} -> True
 
       A.VarP{}    -> False
       A.WildP{}   -> False
@@ -864,7 +879,10 @@ splitStrategy = filter shouldSplit
 
 -- | The loop (tail-recursive): split at a variable in the problem until problem is solved
 checkLHS
-  :: forall tcm a. (MonadTCM tcm, MonadReduce tcm, MonadAddContext tcm, MonadWriter Blocked_ tcm, HasConstInfo tcm, MonadError TCErr tcm, MonadDebug tcm, MonadReader Nat tcm)
+  :: forall tcm a. ( MonadTCM tcm, MonadReduce tcm, MonadAddContext tcm
+                   , MonadWriter Blocked_ tcm, HasConstInfo tcm, HasBuiltins tcm
+                   , MonadError TCErr tcm, MonadDebug tcm, MonadReader Nat tcm
+                   )
   => Maybe QName      -- ^ The name of the definition we are checking.
   -> LHSState a       -- ^ The current state.
   -> tcm a
@@ -885,7 +903,7 @@ checkLHS mf = updateModality checkLHS_ where
   else do
     unlessM (optPatternMatching <$> getsTC getPragmaOptions) $
       unless (problemAllVariables problem) $
-        typeError $ GenericError $ "Pattern matching is disabled"
+        genericError "Pattern matching is disabled"
 
     let splitsToTry = splitStrategy $ problem ^. problemEqs
 
@@ -914,7 +932,7 @@ checkLHS mf = updateModality checkLHS_ where
 
     splitArg :: ProblemEq -> ExceptT TCErr tcm (LHSState a)
     -- Split on constructor/literal pattern
-    splitArg (ProblemEq p v Dom{unDom = a}) = traceCall (CheckPattern p tel a) $ do
+    splitArg (ProblemEq p v d@Dom{unDom = a}) = traceCall (CheckPattern p tel a) $ do
 
       reportSDoc "tc.lhs.split" 30 $ sep
         [ "split looking at pattern"
@@ -931,10 +949,10 @@ checkLHS mf = updateModality checkLHS_ where
       p <- liftTCM $ expandLitPattern p
       case snd $ asView p of
         (A.LitP l)        -> splitLit delta1 dom adelta2 l
-        p@A.RecP{}        -> splitCon delta1 dom adelta2 p Nothing
-        p@(A.ConP _ c ps) -> splitCon delta1 dom adelta2 p $ Just c
+        p@A.RecP{}        -> splitCon delta1 dom adelta2 (Just p) Nothing
+        p@(A.ConP _ c ps) -> splitCon delta1 dom adelta2 (Just p) (Just c)
         p@(A.EqualP _ ts) -> splitPartial delta1 dom adelta2 ts
-
+        A.StrictWildP{}   -> splitStrictWild delta1 dom adelta2
         A.VarP{}        -> __IMPOSSIBLE__
         A.WildP{}       -> __IMPOSSIBLE__
         A.DotP{}        -> __IMPOSSIBLE__
@@ -944,7 +962,6 @@ checkLHS mf = updateModality checkLHS_ where
         A.AsP{}         -> __IMPOSSIBLE__
         A.PatternSynP{} -> __IMPOSSIBLE__
         A.WithP{}       -> __IMPOSSIBLE__
-
 
     splitRest :: NamedArg A.Pattern -> ExceptT TCErr tcm (LHSState a)
     splitRest p = setCurrentRange p $ do
@@ -1180,10 +1197,11 @@ checkLHS mf = updateModality checkLHS_ where
       liftTCM $ updateProblemRest (LHSState delta' ip' problem' target' psplit)
 
 
-    splitCon :: Telescope     -- ^ The types of arguments before the one we split on
-             -> Dom Type      -- ^ The type of the constructor we split on
-             -> Abs Telescope -- ^ The types of arguments after the one we split on
-             -> A.Pattern     -- ^ The pattern written by the user
+    splitCon :: Telescope             -- ^ The types of arguments before the one we split on
+             -> Dom Type              -- ^ The type of the constructor we split on
+             -> Abs Telescope         -- ^ The types of arguments after the one we split on
+             -> Maybe A.Pattern       -- ^ @Just p@ for the pattern written by the user
+                                      --   @Nothing@ for a strict pattern (only accept unique split)
              -> Maybe AmbiguousQName  -- ^ @Just c@ for a (possibly ambiguous) constructor @c@, or
                                       --   @Nothing@ for a record pattern
              -> ExceptT TCErr tcm (LHSState a)
@@ -1223,32 +1241,36 @@ checkLHS mf = updateModality checkLHS_ where
       checkSortOfSplitVar dr a (Just target)
 
       -- The constructor should construct an element of this datatype
-      (c, b) <- liftTCM $ addContext delta1 $ case ambC of
+      (con, conTy) <- liftTCM $ addContext delta1 $ case ambC of
         Just ambC -> disambiguateConstructor ambC d pars
         Nothing   -> getRecordConstructor d pars a
 
       -- Don't split on lazy constructor
       case focusPat of
-        A.ConP cpi _ _ | patLazy cpi == ConPatLazy -> softTypeError $
-          ForcedConstructorNotInstantiated focusPat
+        Just (pat@(A.ConP cpi _ _)) | patLazy cpi == ConPatLazy -> softTypeError $
+          ForcedConstructorNotInstantiated pat
         _ -> return ()
 
       -- The type of the constructor will end in an application of the datatype
-      (TelV gamma (El _ ctarget), boundary) <- liftTCM $ telViewPathBoundaryP b
+      (TelV gamma (El _ ctarget), boundary) <- liftTCM $ telViewPathBoundaryP conTy
       let Def d' es' = ctarget
           cixs = drop (size pars) $ fromMaybe __IMPOSSIBLE__ $ allApplyElims es'
 
       -- Δ₁Γ ⊢ boundary
       reportSDoc "tc.lhs.split.con" 50 $ text "  boundary = " <+> prettyTCM boundary
 
-      unless (d == d') {-'-} __IMPOSSIBLE__
+      unless (d == d') __IMPOSSIBLE__
 
       -- Get names for the constructor arguments from the user patterns
       gamma <- liftTCM $ case focusPat of
-        A.ConP _ _ ps -> do
+        -- For a strict wildcard pattern, no need to rename anything in @gamma@
+        Nothing -> pure gamma
+        -- Otherwise we need to pad the list of visible arguments with implicit
+        -- ones, and we can then use zipWith to rename arguments in @gamma@
+        Just (A.ConP _ _ ps) -> do
           ps <- insertImplicitPatterns ExpandLast ps gamma
           return $ useNamesFromPattern ps gamma
-        A.RecP _ fs -> do
+        Just (A.RecP _ fs) -> do
           axs <- recordFieldNames . theDef <$> getConstInfo d
           ps <- insertMissingFields d (const $ A.WildP patNoRange) fs axs
           ps <- insertImplicitPatterns ExpandLast ps gamma
@@ -1267,7 +1289,7 @@ checkLHS mf = updateModality checkLHS_ where
       reportSDoc "tc.lhs.top" 15 $ addContext delta1 $
         sep [ "preparing to unify"
             , nest 2 $ vcat
-              [ "c      =" <+> prettyTCM c <+> ":" <+> prettyTCM b
+              [ "c      =" <+> prettyTCM con <+> ":" <+> prettyTCM conTy
               , "d      =" <+> prettyTCM (Def d (map Apply pars)) <+> ":" <+> prettyTCM da
               , "gamma  =" <+> prettyTCM gamma
               , "pars   =" <+> brackets (fsep $ punctuate comma $ map prettyTCM pars)
@@ -1285,7 +1307,7 @@ checkLHS mf = updateModality checkLHS_ where
 
       -- Unify constructor target and given type (in Δ₁Γ)
       -- Given: Δ₁  ⊢ D pars : Φ → Setᵢ
-      --        Δ₁  ⊢ c      : Γ → D pars cixs
+      --        Δ₁  ⊢ con    : Γ → D pars cixs
       --        Δ₁  ⊢ ixs    : Φ
       --        Δ₁Γ ⊢ cixs   : Φ
       -- unification of ixs and cixs in context Δ₁Γ gives us a telescope Δ₁'
@@ -1296,15 +1318,15 @@ checkLHS mf = updateModality checkLHS_ where
       --        Δ₁' ⊢ ρ₁ : Δ₁
       --        Δ₁' ⊢ ρ₂ : Γρ₁
       -- Application of the constructor c gives
-      --        Δ₁' ⊢ (c Γ)(ρ₀) : (D pars cixs)(ρ₁;ρ₂)
+      --        Δ₁' ⊢ (con Γ)(ρ₀) : (D pars cixs)(ρ₁;ρ₂)
       -- We have
       --        cixs(ρ₁;ρ₂)
       --         ≡ cixs(ρ₀)   (since ρ₀=ρ₁;ρ₂)
       --         ≡ ixs(ρ₀)    (by unification)
       --         ≡ ixs(ρ₁)    (since ixs doesn't actually depend on Γ)
-      -- so     Δ₁' ⊢ (c Γ)(ρ₀) : (D pars ixs)ρ₁
+      -- so     Δ₁' ⊢ (con Γ)(ρ₀) : (D pars ixs)ρ₁
       -- Putting this together with ρ₁ gives ρ₃ = ρ₁;c ρ₂
-      --        Δ₁' ⊢ ρ₁;(c Γ)(ρ₀) : Δ₁(x : D vs ws)
+      --        Δ₁' ⊢ ρ₁;(con Γ)(ρ₀) : Δ₁(x : D vs ws)
       -- and lifting over Δ₂ gives the final substitution ρ = ρ₃;Δ₂
       -- from Δ' = Δ₁';Δ₂ρ₃
       --        Δ' ⊢ ρ : Δ₁(x : D vs ws)Δ₂
@@ -1312,11 +1334,11 @@ checkLHS mf = updateModality checkLHS_ where
       liftTCM (unifyIndices delta1Gamma flex da' cixs ixs') >>= \case
 
         -- Mismatch.  Report and abort.
-        NoUnify neg -> hardTypeError $ ImpossibleConstructor (conName c) neg
+        NoUnify neg -> hardTypeError $ ImpossibleConstructor (conName con) neg
 
         -- Unclear situation.  Try next split.
         DontKnow errs -> softTypeError $ SplitError $
-          UnificationStuck (conName c) (delta1 `abstract` gamma) cixs ixs' errs
+          UnificationStuck (conName con) (delta1 `abstract` gamma) cixs ixs' errs
 
         -- Success.
         Unifies (delta1',rho0,es) -> do
@@ -1348,7 +1370,7 @@ checkLHS mf = updateModality checkLHS_ where
                                    , conPLazy   = False }
 
           -- compute final context and substitution
-          let crho    = ConP c cpi $ applySubst rho0 $ (telePatterns gamma boundary)
+          let crho    = ConP con cpi $ applySubst rho0 $ (telePatterns gamma boundary)
               rho3    = consS crho rho1
               delta2' = applyPatSubst rho3 delta2
               delta'  = delta1' `abstract` delta2'
@@ -1394,8 +1416,14 @@ checkLHS mf = updateModality checkLHS_ where
             ]
           return st'
 
-
-
+    splitStrictWild :: Telescope     -- ^ The types of arguments before the one we split on
+                    -> Dom Type      -- ^ The type of the argument we split on
+                    -> Abs Telescope -- ^ The types of arguments after the one we split on
+                    -> ExceptT TCErr tcm (LHSState a)
+    splitStrictWild delta1 dom adelta2 = addContext delta1 $ wildSplit (unDom dom) >>= \case
+      NoSplit     -> undefined
+      RecordSplit -> splitCon delta1 dom adelta2 Nothing Nothing
+      DataSplit c -> splitCon delta1 dom adelta2 Nothing (Just $ unambiguous c)
 
 -- | Ensures that we are not performing pattern matching on codata.
 

@@ -662,6 +662,10 @@ instance ToConcrete A.Expr C.Expr where
       C.Underscore (getRange i) $
         prettyShow . NamedMeta (metaNameSuggestion i) . MetaId . metaId <$> metaNumber i
 
+    toConcrete (A.StrictUnderscore i)     = return $
+      C.Underscore (getRange i) $
+        prettyShow . NamedMeta (metaNameSuggestion i) . MetaId . metaId <$> metaNumber i
+
     toConcrete (A.Dot i e) =
       C.Dot (getRange i) <$> toConcrete e
 
@@ -1172,6 +1176,7 @@ instance ToConcrete (UserPattern A.Pattern) A.Pattern where
           C.NotInScope       -> bindName x $ \y ->
                                 ret $ A.VarP $ mkBindName $ x { nameConcrete = y }
       A.WildP{}              -> ret p
+      A.StrictWildP{}        -> ret p
       A.ProjP{}              -> ret p
       A.AbsurdP{}            -> ret p
       A.LitP{}               -> ret p
@@ -1204,6 +1209,7 @@ instance ToConcrete (SplitPattern A.Pattern) A.Pattern where
     case p of
       A.VarP x               -> ret p
       A.WildP{}              -> ret p
+      A.StrictWildP{}        -> ret p
       A.ProjP{}              -> ret p
       A.AbsurdP{}            -> ret p
       A.LitP{}               -> ret p
@@ -1238,6 +1244,7 @@ instance ToConcrete BindingPattern A.Pattern where
     case p of
       A.VarP x               -> bindToConcrete (FreshenName x) $ ret . A.VarP . mkBindName
       A.WildP{}              -> ret p
+      A.StrictWildP{}        -> ret p
       A.ProjP{}              -> ret p
       A.AbsurdP{}            -> ret p
       A.LitP{}               -> ret p
@@ -1265,6 +1272,9 @@ instance ToConcrete A.Pattern C.Pattern where
 
       A.WildP i ->
         return $ C.WildP (getRange i)
+
+      A.StrictWildP i ->
+        return $ C.StrictWildP (getRange i)
 
       A.ConP i c args  -> tryOp (headAmbQ c) (A.ConP i c) args
 

@@ -43,7 +43,7 @@ data Name
     , nameInScope   :: NameInScope
     , nameNameParts :: [NamePart]
     }
-  | NoName -- ^ @_@.
+  | NoName -- ^ @_@ or @!@
     { nameRange     :: Range
     , nameId        :: NameId
     }
@@ -59,9 +59,13 @@ isOpenMixfix n = case n of
 
 instance Underscore Name where
   underscore = NoName noRange __IMPOSSIBLE__
+  strictUnderscore = __IMPOSSIBLE__
+
   isUnderscore NoName{} = True
   isUnderscore (Name {nameNameParts = [Id x]}) = isUnderscore x
   isUnderscore _ = False
+
+  isStrictUnderscore _ = False
 
 -- | Mixfix identifiers are composed of words and holes,
 --   e.g. @_+_@ or @if_then_else_@ or @[_/_]@.
@@ -115,8 +119,12 @@ data QName
 
 instance Underscore QName where
   underscore = QName underscore
+  strictUnderscore = __IMPOSSIBLE__
+
   isUnderscore (QName x) = isUnderscore x
   isUnderscore Qual{}    = False
+
+  isStrictUnderscore _ = False
 
 -- | Top-level module names.  Used in connection with the file system.
 --

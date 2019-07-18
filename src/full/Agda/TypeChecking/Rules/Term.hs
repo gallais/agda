@@ -27,6 +27,7 @@ import Agda.Syntax.Concrete (FieldAssignment'(..), nameFieldA)
 import qualified Agda.Syntax.Concrete.Name as C
 import Agda.Syntax.Common
 import Agda.Syntax.Internal as I
+import Agda.Syntax.Internal.Pattern as I
 import Agda.Syntax.Position
 import Agda.Syntax.Literal
 import Agda.Syntax.Scope.Base ( ThingsInScope, AbstractName
@@ -220,6 +221,7 @@ isTypeEqualTo :: A.Expr -> Type -> TCM Type
 isTypeEqualTo e0 t = scopedExpr e0 >>= \case
   A.ScopedExpr{} -> __IMPOSSIBLE__
   A.Underscore i | A.metaNumber i == Nothing -> return t
+  A.StrictUnderscore i  | A.metaNumber i == Nothing -> return t
   e -> workOnTypes $ do
     t' <- isType e (getSort t)
     t' <$ leqType t t'
@@ -357,6 +359,7 @@ checkLambda cmp b@(A.TBind _ _ xs' typ) body target = do
       possiblePath = numbinds == 1
                    && (case unScope typ of
                          A.Underscore{} -> True
+                         A.StrictUnderscore{}  -> True
                          _              -> False)
                    && isRelevant info && visible info
   reportSLn "tc.term.lambda" 60 $ "possiblePath = " ++ show (possiblePath, numbinds, unScope typ, info)
@@ -967,6 +970,15 @@ checkExpr' cmp e t0 =
         -- a meta variable without arguments: type check directly for efficiency
         A.QuestionMark i ii -> checkQuestionMark (newValueMeta' RunMetaOccursCheck) t0 i ii
         A.Underscore i -> checkUnderscore t0 i
+        A.StrictUnderscore i -> -- TODO: actually do something interesting
+          checkUnderscore t0 i
+          {-
+          reportSDoc "tc.term.expr.strictunderscore" 15 $
+            "Checking a strict underscore at "
+            <+> (text . prettyShow =<< getCurrentRange)
+          p <- checkStrictWild (getRange i) t0
+          checkExpr' cmp (A.patternToExpr p) t0
+          -}
 
         A.WithApp _ e es -> typeError $ NotImplemented "type checking of with application"
 
@@ -1512,7 +1524,8 @@ checkLetBinding b@(A.LetPatBind i p e) ret =
         ]
       ]
     fvs <- getContextSize
-    checkLeftHandSide (CheckPattern p EmptyTel t) Nothing [p0] t0 Nothing [] $ \ (LHSResult _ delta0 ps _ _t _ asb _) -> bindAsPatterns asb $ do
+    checkLeftHandSide (CheckPattern p EmptyTel t) Nothing [p0] t0 Nothing [] $
+      \ (LHSResult _ delta0 ps _ _t _ asb _) -> bindAsPatterns asb $ do
           -- After dropping the free variable patterns there should be a single pattern left.
       let p = case drop fvs ps of [p] -> namedArg p; _ -> __IMPOSSIBLE__
           -- Also strip the context variables from the telescope

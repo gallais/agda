@@ -144,6 +144,7 @@ noDotorEqPattern err = dot
       A.ConP i c args        -> A.ConP i c <$> (traverse $ traverse $ traverse dot) args
       A.ProjP i o d          -> pure $ A.ProjP i o d
       A.WildP i              -> pure $ A.WildP i
+      A.StrictWildP i        -> pure $ A.StrictWildP i
       A.AsP i x p            -> A.AsP i x <$> dot p
       A.DotP{}               -> genericError err
       A.EqualP{}             -> genericError err   -- Andrea: so we also disallow = patterns, reasonable?
@@ -833,7 +834,14 @@ instance ToAbstract C.Expr A.Expr where
                     , metaNumber = maybe Nothing __IMPOSSIBLE__ n
                     , metaNameSuggestion = fromMaybe "" n
                     }
-
+      C.StrictUnderscore r -> do
+        scope <- getScope
+        return $ A.Underscore $ MetaInfo
+                    { metaRange  = r
+                    , metaScope  = scope
+                    , metaNumber = Nothing
+                    , metaNameSuggestion = ""
+                    }
   -- Raw application
       C.RawApp r es -> do
         e <- parseApplication es
@@ -1349,6 +1357,7 @@ instance ToAbstract LetDef [A.LetBinding] where
               definedName (C.RawAppP _ (p : _))  = definedName p
               definedName (C.ParenP _ p)         = definedName p
               definedName C.WildP{}              = Nothing   -- for instance let _ + x = x in ... (not allowed)
+              definedName C.StrictWildP{}        = Nothing
               definedName C.AbsurdP{}            = Nothing
               definedName C.AsP{}                = Nothing
               definedName C.DotP{}               = Nothing
@@ -2359,16 +2368,17 @@ applyAPattern p0 p ps = do
               c   = AmbQ (fmap anameName ds)
           return $ A.ConP cpi c ps
         _ -> failure
-      A.DotP{}    -> failure
-      A.VarP{}    -> failure
-      A.ProjP{}   -> failure
-      A.WildP{}   -> failure
-      A.AsP{}     -> failure
-      A.AbsurdP{} -> failure
-      A.LitP{}    -> failure
-      A.RecP{}    -> failure
-      A.EqualP{}  -> failure
-      A.WithP{}   -> failure
+      A.DotP{}        -> failure
+      A.VarP{}        -> failure
+      A.ProjP{}       -> failure
+      A.WildP{}       -> failure
+      A.StrictWildP{} -> failure
+      A.AsP{}         -> failure
+      A.AbsurdP{}     -> failure
+      A.LitP{}        -> failure
+      A.RecP{}        -> failure
+      A.EqualP{}      -> failure
+      A.WithP{}       -> failure
   where
     failure = typeError $ InvalidPattern p0
 
@@ -2441,9 +2451,11 @@ instance ToAbstract C.Pattern (A.Pattern' C.Expr) where
     toAbstract (RawAppP _ _)   = __IMPOSSIBLE__
     toAbstract (EllipsisP _)   = __IMPOSSIBLE__
 
-    toAbstract p@(C.WildP r)    = return $ A.WildP (PatRange r)
+    toAbstract (C.WildP r )    = return $ A.WildP (PatRange r)
     -- Andreas, 2015-05-28 futile attempt to fix issue 819: repeated variable on lhs "_"
     -- toAbstract p@(C.WildP r)    = A.VarP <$> freshName r "_"
+    toAbstract (C.StrictWildP r) = return $ A.StrictWildP (PatRange r)
+
     toAbstract (C.ParenP _ p)   = toAbstract p
     toAbstract (C.LitP l)       = return $ A.LitP l
     toAbstract p0@(C.AsP r x p) = do

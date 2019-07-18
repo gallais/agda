@@ -426,15 +426,16 @@ instance EmbPrj I.DBPatVar where
   value = valueN DBPatVar
 
 instance EmbPrj I.PatOrigin where
-  icod_ PatOSystem  = icodeN' PatOSystem
-  icod_ PatOSplit   = icodeN 1 PatOSplit
-  icod_ (PatOVar a) = icodeN 2 PatOVar a
-  icod_ PatODot     = icodeN 3 PatODot
-  icod_ PatOWild    = icodeN 4 PatOWild
-  icod_ PatOCon     = icodeN 5 PatOCon
-  icod_ PatORec     = icodeN 6 PatORec
-  icod_ PatOLit     = icodeN 7 PatOLit
-  icod_ PatOAbsurd  = icodeN 8 PatOAbsurd
+  icod_ PatOSystem     = icodeN' PatOSystem
+  icod_ PatOSplit      = icodeN 1 PatOSplit
+  icod_ (PatOVar a)    = icodeN 2 PatOVar a
+  icod_ PatODot        = icodeN 3 PatODot
+  icod_ PatOWild       = icodeN 4 PatOWild
+  icod_ PatOCon        = icodeN 5 PatOCon
+  icod_ PatORec        = icodeN 6 PatORec
+  icod_ PatOLit        = icodeN 7 PatOLit
+  icod_ PatOAbsurd     = icodeN 8 PatOAbsurd
+  icod_ PatOStrictWild = icodeN 9 PatOStrictWild
 
   value = vcase valu where
     valu []     = valuN PatOSystem
@@ -446,6 +447,7 @@ instance EmbPrj I.PatOrigin where
     valu [6]    = valuN PatORec
     valu [7]    = valuN PatOLit
     valu [8]    = valuN PatOAbsurd
+    valu [9]    = valuN PatOStrictWild
     valu _      = malformed
 
 instance EmbPrj a => EmbPrj (I.Pattern' a) where
