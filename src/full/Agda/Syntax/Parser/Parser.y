@@ -51,7 +51,7 @@ import Agda.TypeChecking.Positivity.Occurrence hiding (tests)
 import Agda.Utils.Either hiding (tests)
 import Agda.Utils.Functor
 import Agda.Utils.Hash
-import Agda.Utils.List ( spanJust, chopWhen )
+import Agda.Utils.List ( spanJust, chopWhen, allJustOrFail )
 import Agda.Utils.Monad
 import Agda.Utils.Pretty
 import Agda.Utils.Singleton
@@ -641,16 +641,18 @@ Expr
 -- Level 1: Application
 Expr1 :: { Expr }
 Expr1  : WithExprs {% case $1 of
-                      { [e]    -> return e
-                      ; e : es -> return $ WithApp (fuseRange e es) e es
-                      ; []     -> parseError "impossible: empty with expressions"
+                      { [Named Nothing e] -> return e
+                      ; e : es            -> return $ WithApp (fuseRange e es) e es
+                      ; []                -> parseError "impossible: empty with expressions"
                       }
                    }
 
-WithExprs :: { [Expr] }
+WithExprs :: { [Named Name Expr] }
 WithExprs
-  : Application3 '|' WithExprs { RawApp (getRange $1) $1 :  $3 }
-  | Application                { [RawApp (getRange $1) $1] }
+  : Id ':' Application3 '|' WithExprs  { mkNamedWith (Just $1) (RawApp (getRange $3) $3) : $5 }
+  | Application3 '|' WithExprs         { mkNamedWith Nothing   (RawApp (getRange $1) $1) : $3 }
+  | Id ':' Application3                { mkNamedWith (Just $1) (RawApp (getRange $3) $3) : [] }
+  | Application3                       { mkNamedWith Nothing   (RawApp (getRange $1) $1) : [] }
 
 Application :: { [Expr] }
 Application
@@ -668,7 +670,8 @@ Expr2
     | Expr3                        { $1 }
     | 'quoteGoal' Id 'in' Expr     { QuoteGoal (getRange ($1,$2,$3,$4)) $2 $4 }
     | 'tactic' Application3               { Tactic (getRange ($1, $2)) (RawApp (getRange $2) $2) [] }
-    | 'tactic' Application3 '|' WithExprs { Tactic (getRange ($1, $2, $3, $4)) (RawApp (getRange $2) $2) $4 }
+    | 'tactic' Application3 '|' WithExprs
+       {% fmap (Tactic (getRange ($1, $2, $3, $4)) (RawApp (getRange $2) $2)) (toUnnamedWithExprs "a tactic call" $4) }
 
 LetBody :: { Maybe Expr }
 LetBody : 'in' Expr   { Just $2 }
@@ -721,7 +724,8 @@ Expr3NoCurly
     | setN                              { SetN (getRange (fst $1)) (snd $1) }
     | propN                             { PropN (getRange (fst $1)) (snd $1) }
     | '{{' Expr DoubleCloseBrace        { InstanceArg (getRange ($1,$2,$3)) (maybeNamed $2) }
-    | '(|' WithExprs '|)'               { IdiomBrackets (getRange ($1,$2,$3)) $2 }
+    | '(|' WithExprs '|)'
+      {% fmap (IdiomBrackets (getRange ($1,$2,$3))) (toUnnamedWithExprs "an expression in an idiom bracket" $2) }
     | '(|)'                             { IdiomBrackets (getRange $1) [] }
     | '(' ')'                           { Absurd (fuseRange $1 $2) }
     | '{{' DoubleCloseBrace             { let r = fuseRange $1 $2 in InstanceArg r $ unnamed $ Absurd r }
@@ -1114,13 +1118,15 @@ LHS : Expr1 WithRewriteExpressions
            return (p rs es)
         }
 
-WithRewriteExpressions :: { [Either RewriteEqn [Expr]] }
+WithRewriteExpressions :: { [Either RewriteEqn [Named Name Expr]] }
 WithRewriteExpressions
   : {- empty -} { [] }
   | 'with' Expr1 WithRewriteExpressions
     {% fmap (++ $3) (buildWithStmt $2)  }
   | 'rewrite' Expr1 WithRewriteExpressions
-    { Left (Rewrite $ fromWithApp $2) : $3 }
+    {% toUnnamedWithExprs "an expression in a rewrite" (fromWithApp $2) >>= \ es ->
+       pure (Left (Rewrite es) : $3)
+    }
 
 -- Parsing either an expression @e@ or a @(rewrite | with p <-) e1 | ... | en@.
 HoleContent :: { HoleContent }
@@ -2024,38 +2030,53 @@ exprToAssignment (RawApp r es)
     isLeftArrow _ = False
 exprToAssignment _ = pure Nothing
 
+-- | Make named with
+
+mkNamedWith :: Maybe Name -> Expr -> Named Name Expr
+mkNamedWith mname e = case mname of
+  Nothing   -> unnamed e
+  (Just nm) -> named nm e
+
 -- | Build a with-block
-buildWithBlock :: [Either RewriteEqn [Expr]] -> Parser ([RewriteEqn], [Expr])
+buildWithBlock :: [Either RewriteEqn [Named Name Expr]] -> Parser ([RewriteEqn], [Named Name Expr])
 buildWithBlock rees = case groupByEither rees of
   (Left rs : rest) -> (rs,) <$> finalWith rest
   rest             -> ([],) <$> finalWith rest
 
   where
 
-    finalWith :: [Either [RewriteEqn] [[Expr]]] -> Parser [Expr]
+    finalWith :: [Either [RewriteEqn] [[Named Name Expr]]] -> Parser [Named Name Expr]
     finalWith []             = pure $ []
     finalWith [Right ees]    = pure $ concat ees
     finalWith (Right{} : tl) = parseError' (rStart' $ getRange tl)
       "Cannot use rewrite / pattern-matching with after a with-abstraction."
 
 -- | Build a with-statement
-buildWithStmt :: Expr -> Parser [Either RewriteEqn [Expr]]
+buildWithStmt :: Expr -> Parser [Either RewriteEqn [Named Name Expr]]
 buildWithStmt e = do
   es <- mapM buildSingleWithStmt $ fromWithApp e
   let ees = groupByEither es
   pure $ map (mapLeft Invert) ees
 
-buildSingleWithStmt :: Expr -> Parser (Either (Pattern, Expr) Expr)
+buildSingleWithStmt :: Named n Expr -> Parser (Either (Named n (Pattern, Expr)) (Named n Expr))
 buildSingleWithStmt e = do
-  mpatexpr <- exprToAssignment e
+  mpatexpr <- exprToAssignment (namedThing e)
   pure $ case mpatexpr of
-    Just (pat, _, expr) -> Left (pat, expr)
+    Just (pat, _, expr) -> Left ((pat, expr) <$ e)
     Nothing             -> Right e
 
-fromWithApp :: Expr -> [Expr]
+-- | Extract from a WithApp
+
+fromWithApp :: Expr -> [Named Name Expr]
 fromWithApp = \case
   WithApp _ e es -> e : es
-  e              -> [e]
+  e              -> [unnamed e]
+
+toUnnamedWithExprs :: String -> [Named n Expr] -> Parser [Expr]
+toUnnamedWithExprs err nes =
+  case allJustOrFail (\ (Named nm e) -> e <$ guard (isNothing nm)) nes of
+    Left a   -> parseErrorRange a $ "Cannot name " ++ err ++ "."
+    Right es -> pure es
 
 -- | Build a do-statement
 defaultBuildDoStmt :: Expr -> [LamClause] -> Parser DoStmt
@@ -2168,7 +2189,7 @@ validHaskellModuleName = all ok . splitOnDots
  --------------------------------------------------------------------------}
 
 -- | Turn an expression into a left hand side.
-exprToLHS :: Expr -> Parser ([RewriteEqn] -> [Expr] -> LHS)
+exprToLHS :: Expr -> Parser ([RewriteEqn] -> [Named Name Expr] -> LHS)
 exprToLHS e = LHS <$> exprToPattern e
 
 -- | Turn an expression into a pattern. Fails if the expression is not a
@@ -2197,9 +2218,9 @@ exprToPattern e = do
         Equal r e1 e2           -> return $ EqualP r [(e1, e2)]
         Ellipsis r              -> return $ EllipsisP r
         -- WithApp has already lost the range information of the bars '|'
-        WithApp r e es          -> do
+        WithApp r (Named Nothing e) es -> do
           p  <- exprToPattern e
-          ps <- forM es $ \ e -> defaultNamedArg . WithP (getRange e) <$> exprToPattern e  -- TODO #2822: Range!
+          ps <- forM es $ \ e -> defaultNamedArg . WithP (getRange e) <$> traverse exprToPattern e -- TODO #2822: Range!
           return $ foldl AppP p ps
         _ -> failure
 

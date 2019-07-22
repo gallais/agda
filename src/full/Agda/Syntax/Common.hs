@@ -2074,27 +2074,34 @@ instance KillRange UniverseCheck where
 -- * Rewrite Directives on the LHS
 -----------------------------------------------------------------------------
 
-data RewriteEqn' p e
-  = Rewrite [e]      -- ^ @rewrite e@
-  | Invert  [(p, e)] -- ^ @with p <- e@
+data RewriteEqn' name p e
+  = Rewrite [e]                 -- ^ @rewrite e@
+  | Invert  [Named name (p, e)] -- ^ @with q : p <- e@
   deriving (Data, Eq, Show, Functor, Foldable, Traversable)
 
-instance (NFData p, NFData e) => NFData (RewriteEqn' p e) where
+instance (NFData n, NFData p, NFData e) => NFData (RewriteEqn' n p e) where
   rnf = \case
     Rewrite es -> rnf es
     Invert pes -> rnf pes
 
-instance (Pretty p, Pretty e) => Pretty (RewriteEqn' p e) where
+instance (Pretty n, Pretty p, Pretty e) => Pretty (RewriteEqn' n p e) where
   pretty = \case
     Rewrite es -> prefixedThings (text "rewrite") (pretty <$> es)
-    Invert pes -> prefixedThings (text "invert") (pes <&> \ (p, e) -> pretty p <+> "<-" <+> pretty e)
+    Invert pes -> prefixedThings (text "invert") (prettyNamedPatWith <$> pes) where
 
-instance (HasRange p, HasRange e) => HasRange (RewriteEqn' p e) where
+      prettyNamedPatWith (Named nm (p, e)) =
+        prettyName nm $ pretty p <+> "<-" <+> pretty e
+
+      prettyName = \case
+        Nothing -> id
+        Just n  -> ((pretty n <+> ":") <+>)
+
+instance (HasRange n, HasRange p, HasRange e) => HasRange (RewriteEqn' n p e) where
   getRange = \case
     Rewrite es -> getRange es
     Invert pes -> getRange pes
 
-instance (KillRange e, KillRange p) => KillRange (RewriteEqn' p e) where
+instance (KillRange n, KillRange e, KillRange p) => KillRange (RewriteEqn' n p e) where
   killRange = \case
     Rewrite es -> killRange1 Rewrite es
     Invert pes -> killRange1 Invert pes

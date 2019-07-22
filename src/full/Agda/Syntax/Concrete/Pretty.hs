@@ -238,8 +238,7 @@ instance Pretty Expr where
             RawApp _ es    -> fsep $ map pretty es
             OpApp _ q _ es -> fsep $ prettyOpApp q es
 
-            WithApp _ e es -> fsep $
-              pretty e : map (("|" <+>) . pretty) es
+            WithApp _ e es -> prefixedThings "" $ map pretty (e : es)
 
             HiddenArg _ e -> braces' $ pretty e
             InstanceArg _ e -> dbraces $ pretty e
@@ -400,6 +399,12 @@ instance Pretty WhereClause where
              [ "module", pretty m, "where" ]
          , nest 2 (vcat $ map pretty ds)
          ]
+
+instance Pretty p => Pretty (WithT p) where
+  pretty (Named nm e) = prettyName nm $ pretty e where
+    prettyName = \case
+      Nothing -> id
+      Just n  -> ((pretty n <+> ":") <+>)
 
 instance Pretty LHS where
   pretty (LHS p eqs es) = sep

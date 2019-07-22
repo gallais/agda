@@ -67,7 +67,7 @@ instance MapNamedArgPattern NAP where
       -- AsP: we hand the NamedArg info to the subpattern
       AsP i x p0         -> f $ updateNamedArg (AsP i x) $ mapNamedArgPattern f $ setNamedArg p p0
       -- WithP: like AsP
-      WithP i p0         -> f $ updateNamedArg (WithP i) $ mapNamedArgPattern f $ setNamedArg p p0
+      WithP i (Named n p0) -> f $ updateNamedArg (WithP i . Named n) $ mapNamedArgPattern f $ setNamedArg p p0
 
 instance MapNamedArgPattern a => MapNamedArgPattern [a]                  where
 instance MapNamedArgPattern a => MapNamedArgPattern (FieldAssignment' a) where
@@ -287,7 +287,7 @@ substPattern' subE s = mapAPattern $ \ p -> case p of
 ------------------------------------------------------------------------
 
 -- | Check for with-pattern.
-instance IsWithP (Pattern' e) where
+instance IsWithP BindName (Pattern' e) where
   isWithP = \case
     WithP _ p -> Just p
     _ -> Nothing
@@ -308,7 +308,7 @@ data LHSPatternView e
       -- ^ Application patterns (non-empty list).
   | LHSProjP ProjOrigin AmbiguousQName (NamedArg (Pattern' e))
       -- ^ A projection pattern.  Is also stored unmodified here.
-  | LHSWithP [Pattern' e]
+  | LHSWithP [WithT (Pattern' e)]
       -- ^ With patterns (non-empty list).
       --   These patterns are not prefixed with 'WithP'.
   deriving (Show)
@@ -323,7 +323,7 @@ lhsPatternView (p0 : ps) =
   case namedArg p0 of
     ProjP _i o d -> Just (LHSProjP o d p0, ps)
     -- If the next pattern is a with-pattern, collect more with-patterns
-    WithP _i p   -> Just (LHSWithP (p : map namedArg ps1), ps2)
+    WithP _i p   -> Just (LHSWithP (p : map (namedArg <$>) ps1), ps2)
       where
       (ps1, ps2) = spanJust isWithP ps
     -- If the next pattern is an application pattern, collect more of these
@@ -371,7 +371,7 @@ lhsCoreApp :: LHSCore' e -> [NamedArg (Pattern' e)] -> LHSCore' e
 lhsCoreApp core ps = core { lhsPats = lhsPats core ++ ps }
 
 -- | Add with-patterns to the right.
-lhsCoreWith :: LHSCore' e -> [Pattern' e] -> LHSCore' e
+lhsCoreWith :: LHSCore' e -> [WithT (Pattern' e)] -> LHSCore' e
 lhsCoreWith (LHSWith core wps []) wps' = LHSWith core (wps ++ wps') []
 lhsCoreWith core                  wps' = LHSWith core wps' []
 

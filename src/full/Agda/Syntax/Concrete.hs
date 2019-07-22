@@ -34,7 +34,7 @@ module Agda.Syntax.Concrete
   , ImportDirective, Using, ImportedName
   , Renaming
   , AsName'(..), AsName
-  , OpenShortHand(..), RewriteEqn, WithExpr
+  , OpenShortHand(..), RewriteEqn, WithT, WithExpr, WithPattern
   , LHS(..), Pattern(..), LHSCore(..)
   , LamClause(..)
   , RHS, RHS'(..), WhereClause, WhereClause'(..), ExprWhere(..)
@@ -133,7 +133,7 @@ data Expr
                                                -- correspond to one of
                                                -- the names in the
                                                -- set.
-  | WithApp Range Expr [Expr]                  -- ^ ex: @e | e1 | .. | en@
+  | WithApp Range WithExpr [WithExpr]          -- ^ ex: @e | q1 : e1 | .. | en-1 | qn : en@
   | HiddenArg Range (Named_ Expr)              -- ^ ex: @{e}@ or @{x=e}@
   | InstanceArg Range (Named_ Expr)            -- ^ ex: @{{e}}@ or @{{x=e}}@
   | Lam Range [LamBinding] Expr                -- ^ ex: @\\x {y} -> e@ or @\\(x:A){y:B} -> e@
@@ -190,7 +190,7 @@ data Pattern
   | RecP Range [FieldAssignment' Pattern]  -- ^ @record {x = p; y = q}@
   | EqualP Range [(Expr,Expr)]             -- ^ @i = i1@ i.e. cubical face lattice generator
   | EllipsisP Range                        -- ^ @...@, only as left-most pattern.
-  | WithP Range Pattern                    -- ^ @| p@, for with-patterns.
+  | WithP Range WithPattern                -- ^ @| q : p@, for with-patterns.
   deriving (Data, Eq)
 
 data DoStmt
@@ -267,9 +267,10 @@ data LHS = LHS
   } -- ^ Original pattern (including with-patterns), rewrite equations and with-expressions.
   deriving (Data, Eq)
 
-type RewriteEqn = RewriteEqn' Pattern Expr
-
-type WithExpr   = Expr
+type RewriteEqn  = RewriteEqn' Name Pattern Expr
+type WithT p     = Named Name p
+type WithExpr    = WithT Expr
+type WithPattern = WithT Pattern
 
 -- | Processed (operator-parsed) intermediate form of the core @f ps@ of 'LHS'.
 --   Corresponds to 'lhsOriginalPattern'.
@@ -283,7 +284,7 @@ data LHSCore
              , lhsPats         :: [NamedArg Pattern]  -- ^ More application patterns.
              }
   | LHSWith  { lhsHead         :: LHSCore
-             , lhsWithPatterns :: [Pattern]          -- ^ Non-empty; at least one @(| p)@.
+             , lhsWithPatterns :: [WithPattern]      -- ^ Non-empty; at least one @(| q : p)@.
              , lhsPats         :: [NamedArg Pattern] -- ^ More application patterns.
              }
   deriving (Data, Eq)
@@ -473,12 +474,12 @@ spanAllowedBeforeModule = span isAllowedBeforeModule
  --------------------------------------------------------------------------}
 
 -- | Extended content of an interaction hole.
-data HoleContent' p e
-  = HoleContentExpr    e                 -- ^ @e@
-  | HoleContentRewrite [RewriteEqn' p e] -- ^ @(rewrite | invert) e0 | ... | en@
+data HoleContent' n p e
+  = HoleContentExpr    e                   -- ^ @e@
+  | HoleContentRewrite [RewriteEqn' n p e] -- ^ @(rewrite | with p <-) e0 | ... | en@
   deriving (Functor, Foldable, Traversable)
 
-type HoleContent = HoleContent' Pattern Expr
+type HoleContent = HoleContent' Name Pattern Expr
 
 {--------------------------------------------------------------------------
     Views

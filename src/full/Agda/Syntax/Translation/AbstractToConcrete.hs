@@ -598,9 +598,8 @@ instance ToConcrete a c => ToConcrete (WithHiding a) (WithHiding c) where
   bindToConcrete (WithHiding h a) ret = bindToConcreteHiding h a $ \ a ->
     ret $ WithHiding h a
 
-instance ToConcrete a c => ToConcrete (Named name a) (Named name c) where
-    toConcrete (Named n x) = Named n <$> toConcrete x
-    bindToConcrete (Named n x) ret = bindToConcrete x $ ret . Named n
+instance (ToConcrete a c) => ToConcrete (Named_ a) (Named_ c) where
+  toConcrete (Named n x) = Named n <$> toConcrete x
 
 -- Names ------------------------------------------------------------------
 
@@ -827,6 +826,9 @@ instance ToConcrete A.Expr C.Expr where
        where r = getRange e
     toConcrete (A.PatternSyn n) = C.Ident <$> toConcrete (headAmbQ n)
 
+instance ToConcrete a b => ToConcrete (A.WithT a) (C.WithT b) where
+  toConcrete (Named nm pe) = Named <$> traverse (fmap boundName . toConcrete) nm <*> toConcrete pe
+
 makeDomainFree :: A.LamBinding -> A.LamBinding
 makeDomainFree b@(A.DomainFull (A.TBind _ tac [x] t)) =
   case unScope t of
@@ -946,7 +948,7 @@ openModule' x dir restrict env = env{currentScope = set scopeModules mods' sInfo
 declsToConcrete :: [A.Declaration] -> AbsToCon [C.Declaration]
 declsToConcrete ds = mergeSigAndDef . concat <$> toConcrete ds
 
-instance ToConcrete A.RHS (C.RHS, [C.RewriteEqn], [C.Expr], [C.Declaration]) where
+instance ToConcrete A.RHS (C.RHS, [C.RewriteEqn], [Named C.Name C.Expr], [C.Declaration]) where
     toConcrete (A.RHS e (Just c)) = return (C.RHS c, [], [], [])
     toConcrete (A.RHS e Nothing) = do
       e <- toConcrete e
@@ -964,10 +966,10 @@ instance ToConcrete A.RHS (C.RHS, [C.RewriteEqn], [C.Expr], [C.Declaration]) whe
       return (rhs, eqs, es, wh ++ whs)
 
 instance (ToConcrete p q, ToConcrete a b) =>
-         ToConcrete (RewriteEqn' p a) (RewriteEqn' q b) where
+         ToConcrete (RewriteEqn' A.BindName p a) (RewriteEqn' C.Name q b) where
   toConcrete = \case
-    Rewrite es -> Rewrite <$> mapM toConcrete es
-    Invert pes -> Invert <$> mapM toConcrete pes
+    Rewrite es  -> Rewrite <$> mapM toConcrete es
+    Invert npes -> Invert <$> mapM toConcrete npes
 
 instance ToConcrete (Maybe A.QName) (Maybe C.Name) where
   toConcrete = mapM (toConcrete . qnameName)
@@ -1190,7 +1192,17 @@ instance ToConcrete (UserPattern A.Pattern) A.Pattern where
       A.AsP i x p            -> bindName' (unBind x) $
                                 bindToConcrete (UserPattern p) $ \ p ->
                                 ret (A.AsP i x p)
-      A.WithP i p            -> bindToConcrete (UserPattern p) $ ret . A.WithP i
+      A.WithP i (Named mx p) ->
+        bindToConcrete (UserPattern p) $ \ p -> do
+          let fx = \ k -> case mx of
+                Nothing -> k Nothing
+                Just bx -> do
+                  let x = unBind bx
+                  case isInScope x of
+                    InScope      -> bindName' x $ k (Just bx)
+                    C.NotInScope -> bindName x $ \ y ->
+                      k $ Just $ mkBindName $ x { nameConcrete = y }
+          fx $ \ mx -> ret $ A.WithP i (Named mx p)
 
 instance ToConcrete (UserPattern (NamedArg A.Pattern)) (NamedArg A.Pattern) where
   bindToConcrete (UserPattern np) ret =
@@ -1221,7 +1233,7 @@ instance ToConcrete (SplitPattern A.Pattern) A.Pattern where
       A.RecP i args          -> bindToConcrete ((map . fmap) SplitPattern args) $ ret . A.RecP i
       A.AsP i x p            -> bindToConcrete (SplitPattern p)  $ \ p ->
                                 ret (A.AsP i x p)
-      A.WithP i p            -> bindToConcrete (SplitPattern p) $ ret . A.WithP i
+      A.WithP i (Named x p)  -> bindToConcrete (SplitPattern p) $ ret . A.WithP i . Named x
 
 instance ToConcrete (SplitPattern (NamedArg A.Pattern)) (NamedArg A.Pattern) where
   bindToConcrete (SplitPattern np) ret =
@@ -1251,7 +1263,12 @@ instance ToConcrete BindingPattern A.Pattern where
       A.AsP i x p            -> bindToConcrete (FreshenName x) $ \ x ->
                                 bindToConcrete (BindingPat p)  $ \ p ->
                                 ret (A.AsP i (mkBindName x) p)
-      A.WithP i p            -> bindToConcrete (BindingPat p) $ ret . A.WithP i
+      A.WithP i (Named mx p)  ->
+        bindToConcrete (BindingPat p) $ \ p -> do
+        let fx = \ k -> case mx of
+               Nothing -> k Nothing
+               Just bx -> bindToConcrete (FreshenName bx) $ k . Just . mkBindName
+        fx $ \ x -> ret $ A.WithP i (Named x p)
 
 instance ToConcrete A.Pattern C.Pattern where
   bindToConcrete p ret = do
@@ -1319,7 +1336,9 @@ instance ToConcrete A.Pattern C.Pattern where
       A.RecP i as ->
         C.RecP (getRange i) <$> mapM (traverse toConcrete) as
 
-      A.WithP i p -> C.WithP (getRange i) <$> toConcreteCtx WithArgCtx p
+      A.WithP i (Named mx p) -> do
+        mx <- traverse (fmap C.boundName . toConcrete) mx
+        C.WithP (getRange i) . Named mx <$> toConcreteCtx WithArgCtx p
 
     where
 

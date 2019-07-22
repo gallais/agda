@@ -539,7 +539,7 @@ parsePat prs p = case p of
     RecP r fs        -> RecP r <$> mapM (traverse (parsePat prs)) fs
     EqualP{}         -> return p -- Andrea: cargo culted from DotP
     EllipsisP _      -> fail "bad ellipsis"
-    WithP r p        -> WithP r <$> parsePat prs p
+    WithP r p        -> WithP r <$> mapM (parsePat prs) p
 
 
 {- Implement parsing of copattern left hand sides, e.g.
@@ -689,7 +689,7 @@ parsePatternOrSyn lhsOrPatSyn p = billToParser IsPattern $ do
 -- | Helper function for 'parseLHS' and 'parsePattern'.
 validConPattern :: [QName] -> Pattern -> Bool
 validConPattern cons p = case appView p of
-    [WithP _ p]   -> validConPattern cons p
+    [WithP _ p]   -> validConPattern cons $ namedThing p
     [_]           -> True
     IdentP x : ps -> elem x cons && all (validConPattern cons) ps
     [QuoteP _, _] -> True

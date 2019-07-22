@@ -198,6 +198,13 @@ mapMaybeAndRest f = loop [] where
     x:xs | Just y <- f x -> first (y:) $ loop [] xs
          | otherwise     -> loop (x:acc) xs
 
+allJustOrFail :: (a -> Maybe b) -> [a] -> Either a [b]
+allJustOrFail f = go where
+  go [] = Right []
+  go (a : as)
+    | Just b <- f a = (b :) <$> go as
+    | otherwise     = Left a
+
 -- | Drops from both lists simultaneously until one list is empty.
 dropCommon :: [a] -> [b] -> ([a],[b])
 dropCommon (x : xs) (y : ys) = dropCommon xs ys

@@ -92,7 +92,7 @@ data Expr
     -- ^ Meta variable for hidden argument (must be inferred locally).
   | Dot ExprInfo Expr                  -- ^ @.e@, for postfix projection.
   | App  AppInfo Expr (NamedArg Expr)  -- ^ Ordinary (binary) application.
-  | WithApp ExprInfo Expr [Expr]       -- ^ With application.
+  | WithApp ExprInfo WithExpr [WithExpr] -- ^ With application.
   | Lam  ExprInfo LamBinding Expr      -- ^ @λ bs → e@.
   | AbsurdLam ExprInfo Hiding          -- ^ @λ()@ or @λ{}@.
   | ExtendedLam ExprInfo DefInfo QName [Clause]
@@ -358,7 +358,10 @@ noWhereDecls = WhereDecls Nothing []
 
 type Clause = Clause' LHS
 type SpineClause = Clause' SpineLHS
-type RewriteEqn  = RewriteEqn' Pattern (QName, Expr)
+type RewriteEqn  = RewriteEqn' BindName Pattern (QName, Expr)
+type WithT p     = Named BindName p
+type WithExpr    = WithT Expr
+type WithPattern = WithT Pattern
 
 data RHS
   = RHS
@@ -369,7 +372,7 @@ data RHS
       --   'Nothing' for internally generated rhss.
     }
   | AbsurdRHS
-  | WithRHS QName [Expr] [Clause]
+  | WithRHS QName [WithExpr] [Clause]
       -- ^ The 'QName' is the name of the with function.
   | RewriteRHS
     { rewriteExprs      :: [RewriteEqn]
@@ -436,8 +439,8 @@ data LHSCore' e
     -- | With patterns.
   | LHSWith  { lhsHead         :: LHSCore' e
                  -- ^ E.g. the 'LHSHead'.
-             , lhsWithPatterns :: [Pattern' e]
-                 -- ^ Applied to with patterns @| p1 | ... | pn@.
+             , lhsWithPatterns :: [WithT (Pattern' e)]
+                 -- ^ Applied to with patterns @| q1 : p1 | ... | qn : pn@.
                  --   These patterns are not prefixed with @WithP@!
              , lhsPats         :: [NamedArg (Pattern' e)]
                  -- ^ Further applied to patterns.
@@ -471,7 +474,7 @@ data Pattern' e
   | PatternSynP PatInfo AmbiguousQName (NAPs e)
   | RecP PatInfo [FieldAssignment' (Pattern' e)]
   | EqualP PatInfo [(e, e)]
-  | WithP PatInfo (Pattern' e)  -- ^ @| p@, for with-patterns.
+  | WithP PatInfo (WithT (Pattern' e))  -- ^ @| q : p@, for with-patterns.
   deriving (Data, Show, Functor, Foldable, Traversable, Eq)
 
 type NAPs e   = [NamedArg (Pattern' e)]
@@ -905,10 +908,10 @@ instance AllNames Declaration where
 instance AllNames Clause where
   allNames cl = allNames (clauseRHS cl, clauseWhereDecls cl)
 
-instance AllNames e => AllNames (RewriteEqn' p e) where
+instance AllNames e => AllNames (RewriteEqn' n p e) where
     allNames = \case
       Rewrite es -> Fold.foldMap allNames es
-      Invert pes -> Fold.foldMap (Fold.foldMap allNames) pes
+      Invert pes -> Fold.foldMap (allNames . snd . namedThing) pes
 
 instance AllNames RHS where
   allNames (RHS e _)                 = allNames e

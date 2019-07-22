@@ -1,4 +1,5 @@
-{-# LANGUAGE TypeFamilies #-}  -- For type equality.
+{-# LANGUAGE TypeFamilies         #-} -- For type equality.
+{-# LANGUAGE UndecidableInstances #-} -- For isWithP
 
 -- | Tools for patterns in concrete syntax.
 
@@ -50,23 +51,23 @@ instance HasEllipsis LHS where
   hasEllipsis (LHS p _ _) = hasEllipsis p
 
 
--- | Check for with-pattern @| p@.
+-- | Check for with-pattern @| q : p@.
 
-class IsWithP p where
-  isWithP :: p -> Maybe p
+class IsWithP n p | p -> n where
+  isWithP :: p -> Maybe (Named n p)
 
-  default isWithP :: (IsWithP q, Decoration f, f q ~ p) => p -> Maybe p
-  isWithP = traverseF isWithP
+  default isWithP :: (IsWithP n q, Decoration f, f q ~ p) => p -> Maybe (Named n p)
+  isWithP p = distributeF <$> traverseF isWithP p
 
-instance IsWithP Pattern where
+instance IsWithP Name Pattern where
   isWithP = \case
     WithP _ p     -> Just p
     RawAppP _ [p] -> isWithP p
     ParenP _ p    -> isWithP p
     _ -> Nothing
 
-instance IsWithP p => IsWithP (Arg p) where
-instance IsWithP p => IsWithP (Named n p) where
+instance IsWithP n p => IsWithP n (Arg p) where
+instance IsWithP m p => IsWithP m (Named n p) where
 
 
 -- * LHS manipulation (see also ''Agda.Syntax.Abstract.Pattern'')
@@ -77,7 +78,7 @@ instance IsWithP p => IsWithP (Named n p) where
 data LHSPatternView
   = LHSAppP  [NamedArg Pattern]
       -- ^ Application patterns (non-empty list).
-  | LHSWithP [Pattern]
+  | LHSWithP [WithPattern]
       -- ^ With patterns (non-empty list).
       --   These patterns are not prefixed with 'WithP'.
 
@@ -89,7 +90,7 @@ lhsPatternView :: [NamedArg Pattern] -> Maybe (LHSPatternView, [NamedArg Pattern
 lhsPatternView [] = Nothing
 lhsPatternView (p0 : ps) =
   case namedArg p0 of
-    WithP _i p   -> Just (LHSWithP (p : map namedArg ps1), ps2)
+    WithP _i p   -> Just (LHSWithP (p : map (namedArg <$>) ps1), ps2)
       where
       (ps1, ps2) = spanJust isWithP ps
     -- If the next pattern is an application pattern, collect more of these
@@ -102,7 +103,7 @@ lhsCoreApp :: LHSCore -> [NamedArg Pattern] -> LHSCore
 lhsCoreApp core ps = core { lhsPats = lhsPats core ++ ps }
 
 -- | Add with-patterns to the right.
-lhsCoreWith :: LHSCore -> [Pattern] -> LHSCore
+lhsCoreWith :: LHSCore -> [WithPattern] -> LHSCore
 lhsCoreWith (LHSWith core wps []) wps' = LHSWith core (wps ++ wps') []
 lhsCoreWith core                  wps' = LHSWith core wps' []
 
