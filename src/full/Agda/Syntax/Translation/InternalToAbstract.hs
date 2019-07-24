@@ -203,7 +203,8 @@ instance Reify DisplayTerm Expr where
     DDef f es -> elims (A.Def f) =<< reify es
     DWithApp u us es0 -> do
       (e, es) <- reify (u, us)
-      elims (if null es then e else A.WithApp noExprInfo e es) =<< reify es0
+      let app = A.WithApp noExprInfo (unnamed e) (map unnamed es)
+      elims (if null es then e else app) =<< reify es0
 
 -- | @reifyDisplayForm f vs fallback@
 --   tries to rewrite @f vs@ with a display form for @f@.
@@ -328,7 +329,7 @@ reifyDisplayFormP f ps wps = do
     displayLHS ps d = do
         let (f, vs, es) = flattenWith d
         ps  <- mapM elimToPat vs
-        wps <- mapM (updateNamedArg (A.WithP empty) <.> elimToPat) es
+        wps <- mapM (updateNamedArg (A.WithP empty . unnamed) <.> elimToPat) es
         return (f, ps, wps)
       where
         argToPat :: MonadReify m => Arg DisplayTerm -> m (NamedArg A.Pattern)
@@ -884,7 +885,7 @@ stripImplicits params ps = do
             A.PatternSynP _ _ _ -> __IMPOSSIBLE__ -- p
             A.RecP i fs   -> A.RecP i $ map (fmap stripPat) fs  -- TODO Andreas: is this right?
             A.EqualP{}    -> p -- EqualP cannot be blanked.
-            A.WithP i p   -> A.WithP i $ stripPat p -- TODO #2822: right?
+            A.WithP i p   -> A.WithP i $ fmap stripPat p -- TODO #2822: right?
 
           varOrDot A.VarP{}      = True
           varOrDot A.WildP{}     = True

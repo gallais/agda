@@ -54,41 +54,35 @@ import Agda.Utils.Impossible
 --
 --   [@Δ@]         context of types and with-arguments.
 --
---   [@Δ ⊢ t@]     type of rhs.
+--   [@Δ ⊢ ty@]    type of rhs.
 --
---   [@Δ ⊢ as@]    types of with arguments.
---
---   [@Δ ⊢ vs@]    with arguments.
---
+--   [@Δ ⊢ t@]     object suggesting a telescope split
 --
 --   Output:
 --
---   [@Δ₁@]        part of context needed for with arguments and their types.
+--   [@Δ₁@]        part of context needed for object
 --
---   [@Δ₂@]        part of context not needed for with arguments and their types.
+--   [@Δ₂@]        part of context not needed for object
 --
 --   [@π@]         permutation from Δ to Δ₁Δ₂ as returned by 'splitTelescope'.
 --
---   [@Δ₁Δ₂ ⊢ t'@] type of rhs under @π@
+--   [@Δ₁Δ₂ ⊢ ty'@] type of rhs under @π@
 --
---   [@Δ₁ ⊢ as'@]  types of with-arguments depending only on @Δ₁@.
---
---   [@Δ₁ ⊢ vs'@]  with-arguments under @π@.
+--   [@Δ₁ ⊢ t'@]   object @t@ on @Δ₁@.
 
-splitTelForWith
+splitTelForSubst
   -- Input:
-  :: Telescope      -- ^ __@Δ@__        context of types and with-arguments.
-  -> Type           -- ^ __@Δ ⊢ t@__    type of rhs.
-  -> [EqualityView] -- ^ __@Δ ⊢ as@__   types of with arguments.
-  -> [Term]         -- ^ __@Δ ⊢ vs@__   with arguments.
+  :: (Free t, Subst Term t)
+  => Telescope  -- ^ __@Δ@__      context of types and with-arguments.
+  -> Type       -- ^ __@Δ ⊢ ty@__ type of rhs.
+  -> t          -- ^ __@Δ ⊢ t@__  Object to split according to
   -- Output:
-  -> ( Telescope    -- @Δ₁@       part of context needed for with arguments and their types.
-     , Telescope    -- @Δ₂@       part of context not needed for with arguments and their types.
-     , Permutation  -- @π@        permutation from Δ to Δ₁Δ₂ as returned by 'splitTelescope'.
-     , Type         -- @Δ₁Δ₂ ⊢ t'@ type of rhs under @π@
-     , [EqualityView] -- @Δ₁ ⊢ as'@ types of with- and rewrite-arguments depending only on @Δ₁@.
-     , [Term]       -- @Δ₁ ⊢ vs'@ with- and rewrite-arguments under @π@.
-     )              -- ^ (__@Δ₁@__,__@Δ₂@__,__@π@__,__@t'@__,__@as'@__,__@vs'@__) where
+  -> ( Telescope    -- @Δ₁@          part of context needed for with arguments and their types.
+     , Telescope    -- @Δ₂@          part of context not needed for with arguments and their types.
+     , Permutation  -- @π@           permutation from Δ to Δ₁Δ₂ as returned by 'splitTelescope'.
+     , Type         -- @Δ₁Δ₂ ⊢ ty'@  type of rhs under @π@
+     , t            -- @Δ₁ ⊢ t'@     Object @t@ depending only on @Δ₁@.
+     ) -- ^ (__@Δ₁@__,__@Δ₂@__,__@π@__,__@ty'@__,__@t'@__) where
 --
 --   [@Δ₁@]        part of context needed for with arguments and their types.
 --
@@ -96,24 +90,14 @@ splitTelForWith
 --
 --   [@π@]         permutation from Δ to Δ₁Δ₂ as returned by 'splitTelescope'.
 --
---   [@Δ₁Δ₂ ⊢ t'@] type of rhs under @π@
+--   [@Δ₁Δ₂ ⊢ ty'@] type of rhs under @π@
 --
---   [@Δ₁ ⊢ as'@]  types with with-arguments depending only on @Δ₁@.
---
---   [@Δ₁ ⊢ vs'@]  with-arguments under @π@.
+--   [@Δ₁ ⊢ t'@]  object under @π@.
 
-splitTelForWith delta t as vs = let
-    -- Andreas, 2016-01-27, unfixing issue 1692
-    -- Due to public protests, we do not rewrite in the types of rewrite
-    -- expressions.
-    -- Otherwise, we cannot rewrite twice after another with the same equation
-    -- as it turns into a reflexive equation in the first rewrite.
-    -- Thus we include the fvs of the rewrite terms in Δ₁.
-    rewriteTerms = map snd $ filter (isEqualityType . fst) $ zip as vs
-
+splitTelForSubst delta ty t = let
     -- Split the telescope into the part needed to type the with arguments
     -- and all the other stuff.
-    fv = allFreeVars (as, vs)
+    fv = allFreeVars t
     SplitTel delta1 delta2 perm = splitTelescope fv delta
 
     -- Δ₁Δ₂ ⊢ π : Δ
@@ -124,13 +108,11 @@ splitTelForWith delta t as vs = let
     rhopi = composeS rho pi
 
     -- We need Δ₁Δ₂ ⊢ t'
-    t' = applySubst pi t
-    -- and Δ₁ ⊢ as'
-    as' = applySubst rhopi as
-    -- and Δ₁ ⊢ vs' : as'
-    vs' = applySubst rhopi vs
+    ty' = applySubst pi ty
+    -- and Δ₁ ⊢ avs'
+    t' = applySubst rhopi t
 
-  in (delta1, delta2, perm, t', as', vs')
+  in (delta1, delta2, perm, ty', t')
 
 
 -- | Abstract with-expressions @vs@ to generate type for with-helper function.
@@ -183,51 +165,55 @@ countWithArgs = sum . map countArgs
 
 -- | From a list of @with@ and @rewrite@ expressions and their types,
 --   compute the list of final @with@ expressions (after expanding the @rewrite@s).
-withArguments :: [Term] -> [EqualityView] -> [Term]
-withArguments vs as = concat $ for (zip vs as) $ \case
-  (v, OtherType a) -> [v]
-  (prf, eqt@(EqualityType s _eq _pars _t v _v')) -> [unArg v, prf]
+withArguments :: [A.WithT (Term, EqualityView)] -> [Term]
+withArguments vas = concat $ for vas $ \ (Named nm (e, ty)) -> case ty of
+  OtherType{}    -> [e]
+  EqualityType{} -> maybe ([unArg (eqtLhs ty), e]) __IMPOSSIBLE__ nm
+
 
 -- | Compute the clauses for the with-function given the original patterns.
 buildWithFunction
-  :: [Name]               -- ^ Names of the module parameters of the parent function.
-  -> QName                -- ^ Name of the parent function.
-  -> QName                -- ^ Name of the with-function.
-  -> Type                 -- ^ Types of the parent function.
-  -> Telescope            -- ^ Context of parent patterns.
+  :: [Name]                     -- ^ Names of the module parameters of the parent function.
+  -> QName                      -- ^ Name of the parent function.
+  -> QName                      -- ^ Name of the with-function.
+  -> Type                       -- ^ Types of the parent function.
+  -> Telescope                  -- ^ Context of parent patterns.
   -> [NamedArg DeBruijnPattern] -- ^ Parent patterns.
-  -> Nat                  -- ^ Number of module parameters in parent patterns
-  -> Substitution         -- ^ Substitution from parent lhs to with function lhs
-  -> Permutation          -- ^ Final permutation.
-  -> Nat                  -- ^ Number of needed vars.
-  -> Nat                  -- ^ Number of with expressions.
-  -> [A.SpineClause]      -- ^ With-clauses.
-  -> TCM [A.SpineClause]  -- ^ With-clauses flattened wrt. parent patterns.
+  -> Nat                        -- ^ Number of module parameters in parent patterns
+  -> Substitution               -- ^ Substitution from parent lhs to with function lhs
+  -> Permutation                -- ^ Final permutation.
+  -> Nat                        -- ^ Number of needed vars.
+  -> Nat                        -- ^ Number of with expressions.
+  -> [A.SpineClause]            -- ^ With-clauses.
+  -> TCM [A.SpineClause]        -- ^ With-clauses flattened wrt. parent patterns.
 buildWithFunction cxtNames f aux t delta qs npars withSub perm n1 n cs = mapM buildWithClause cs
   where
     -- Nested with-functions will iterate this function once for each parent clause.
     buildWithClause (A.Clause (A.SpineLHS i _ allPs) inheritedPats rhs wh catchall) = do
       let (ps, wps)    = splitOffTrailingWithPatterns allPs
           (wps0, wps1) = splitAt n wps
-          ps0          = map (updateNamedArg fromWithP) wps0
-            where
-            fromWithP (A.WithP _ p) = p
-            fromWithP _ = __IMPOSSIBLE__
-      reportSDoc "tc.with" 50 $ "inheritedPats:" <+> vcat [ prettyA p <+> "=" <+> prettyTCM v <+> ":" <+> prettyTCM a
-                                                               | A.ProblemEq p v a <- inheritedPats ]
+          ps0          = concatMap namedWithP wps0
+      reportSDoc "tc.with" 50 $ "inheritedPats:" <+>
+        vcat [ prettyA p <+> "=" <+> prettyTCM v <+> ":" <+> prettyTCM a
+             | A.ProblemEq p v a <- inheritedPats ]
       (strippedPats, ps') <- stripWithClausePatterns cxtNames f aux t delta qs npars perm ps
       reportSDoc "tc.with" 50 $ hang "strippedPats:" 2 $
-                                  vcat [ prettyA p <+> "==" <+> prettyTCM v <+> (":" <+> prettyTCM t)
-                                       | A.ProblemEq p v t <- strippedPats ]
+        vcat [ prettyA p <+> "==" <+> prettyTCM v <+> (":" <+> prettyTCM t)
+             | A.ProblemEq p v t <- strippedPats ]
       rhs <- buildRHS strippedPats rhs
       let (ps1, ps2) = splitAt n1 ps'
-      let result = A.Clause (A.SpineLHS i aux $ ps1 ++ ps0 ++ ps2 ++ wps1)
+      let result = A.Clause (A.SpineLHS i aux $ ps1 ++ ps0 ++ ps2 ++ concatMap namedWithP wps1)
                      (inheritedPats ++ strippedPats)
                      rhs wh catchall
       reportSDoc "tc.with" 20 $ vcat
         [ "buildWithClause returns" <+> prettyA result
         ]
       return result
+
+    namedWithP :: A.WithT (NamedArg A.Pattern) -> [NamedArg A.Pattern]
+    namedWithP (Named nm p) = case nm of
+      Nothing -> [p]
+      Just bx -> [p, defaultNamedArg (A.VarP bx)]
 
     buildRHS _ rhs@A.RHS{}                 = return rhs
     buildRHS _ rhs@A.AbsurdRHS             = return rhs

@@ -477,9 +477,11 @@ data Pattern' e
   | WithP PatInfo (WithT (Pattern' e))  -- ^ @| q : p@, for with-patterns.
   deriving (Data, Show, Functor, Foldable, Traversable, Eq)
 
-type NAPs e   = [NamedArg (Pattern' e)]
+type NAP' e   = NamedArg (Pattern' e)
+type NAPs e   = [NAP' e]
 type Pattern  = Pattern' Expr
-type Patterns = [NamedArg Pattern]
+type NAP      = NAP' Expr
+type Patterns = [NAP]
 
 instance IsProjP (Pattern' e) where
   -- Andreas, 2018-06-19, issue #3130
@@ -497,7 +499,7 @@ instance IsProjP Expr where
     Things we parse but are not part of the Agda file syntax
  --------------------------------------------------------------------------}
 
-type HoleContent = C.HoleContent' Pattern Expr
+type HoleContent = C.HoleContent' BindName Pattern Expr
 
 {--------------------------------------------------------------------------
     Instances

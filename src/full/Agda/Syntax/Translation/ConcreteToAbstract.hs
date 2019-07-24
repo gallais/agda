@@ -151,7 +151,7 @@ noDotorEqPattern err = dot
       A.DefP i f args        -> A.DefP i f <$> (traverse $ traverse $ traverse dot) args
       A.PatternSynP i c args -> A.PatternSynP i c <$> (traverse $ traverse $ traverse dot) args
       A.RecP i fs            -> A.RecP i <$> (traverse $ traverse dot) fs
-      A.WithP i p            -> A.WithP i <$> dot p
+      A.WithP i p            -> A.WithP i <$> traverse dot p
 --UNUSED Liang-Ting Chen 2019-07-16
 ---- | Make sure that there are no dot patterns (WAS: called on pattern synonyms).
 --noDotPattern :: String -> A.Pattern' e -> ScopeM (A.Pattern' Void)
@@ -853,9 +853,16 @@ instance ToAbstract C.Expr A.Expr where
 
   -- With application
       C.WithApp r e es -> do
-        e  <- toAbstractCtx WithFunCtx e
-        es <- mapM (toAbstractCtx WithArgCtx) es
+        e  <- namedPatInCtx WithFunCtx e
+        es <- mapM (namedPatInCtx WithArgCtx) es
         return $ A.WithApp (ExprRange r) e es
+
+        where namedPatInCtx :: Precedence -> C.WithExpr -> ScopeM A.WithExpr
+              namedPatInCtx pr (Named bx p) = do
+                p  <- toAbstractCtx pr p
+                bx <- traverse (toAbstract . NewName PatternBound) bx
+                return $ Named (mkBindName <$> bx) p
+
 
   -- Misplaced hidden argument
       C.HiddenArg _ _ -> nothingAppliedToHiddenArg e
@@ -2192,10 +2199,10 @@ data RightHandSide = RightHandSide
 
 data AbstractRHS
   = AbsurdRHS'
-  | WithRHS' [A.Expr] [ScopeM C.Clause]
+  | WithRHS' [A.WithExpr] [ScopeM C.Clause]
     -- ^ The with clauses haven't been translated yet
   | RHS' A.Expr C.Expr
-  | RewriteRHS' [RewriteEqn' A.Pattern A.Expr] AbstractRHS A.WhereDeclarations
+  | RewriteRHS' [RewriteEqn' A.BindName A.Pattern A.Expr] AbstractRHS A.WhereDeclarations
 
 qualifyName_ :: A.Name -> ScopeM A.QName
 qualifyName_ x = do
@@ -2207,19 +2214,19 @@ withFunctionName s = do
   NameId i _ <- fresh
   qualifyName_ =<< freshName_ (s ++ show i)
 
-instance ToAbstract (RewriteEqn' A.Pattern A.Expr) A.RewriteEqn where
+instance ToAbstract (RewriteEqn' A.BindName A.Pattern A.Expr) A.RewriteEqn where
   toAbstract = \case
     Rewrite es -> fmap Rewrite $ forM es $ \ e -> do
       qn <- withFunctionName "-rewrite"
       pure (qn, e)
-    Invert pes -> fmap Invert $ forM pes $ \ (p, e) -> do
+    Invert pes -> fmap Invert $ forM pes $ \ (Named bx (p, e)) -> do
       qn <- withFunctionName "-invert"
-      pure (p, (qn, e))
+      pure $ Named bx (p, (qn, e))
 
-instance ToAbstract (C.RewriteEqn) (RewriteEqn' A.Pattern A.Expr) where
+instance ToAbstract (C.RewriteEqn) (RewriteEqn' A.BindName A.Pattern A.Expr) where
   toAbstract = \case
     Rewrite es -> Rewrite <$> mapM toAbstract es
-    Invert pes -> fmap Invert $ forM pes $ \ (p, e) -> do
+    Invert pes -> fmap Invert $ forM pes $ \ (Named bx (p, e)) -> do
       -- first check the expression: the pattern may shadow
       -- some of the variables mentioned in it!
       e <- toAbstract e
@@ -2231,7 +2238,9 @@ instance ToAbstract (C.RewriteEqn) (RewriteEqn' A.Pattern A.Expr) where
       checkPatternLinearity p (typeError . RepeatedVariablesInPattern)
       bindVarsToBind
       p <- toAbstract p
-      pure (p, e)
+      -- Finally bind the name associated to the equation (if any)
+      bx <- traverse (toAbstract . NewName PatternBound) bx
+      pure $ Named (mkBindName <$> bx) (p, e)
 
 instance ToAbstract AbstractRHS A.RHS where
   toAbstract AbsurdRHS'            = return A.AbsurdRHS
@@ -2254,7 +2263,10 @@ instance ToAbstract RightHandSide AbstractRHS where
   toAbstract (RightHandSide [] (_ : _) _ (C.RHS _) _ _) = typeError $ BothWithAndRHS
   toAbstract (RightHandSide [] [] [] rhs _ [])          = toAbstract rhs
   toAbstract (RightHandSide [] es cs C.AbsurdRHS _ [])  = do
-    es <- toAbstractCtx TopCtx es
+    es <- forM es $ \ (Named bx e) -> do
+      e  <- toAbstractCtx TopCtx e
+      bx <- traverse (toAbstract . NewName PatternBound) bx
+      pure $ Named (mkBindName <$> bx) e
     return $ WithRHS' es cs
   -- TODO: some of these might be possible
   toAbstract (RightHandSide [] (_ : _) _ C.AbsurdRHS _ (_ : _)) = __IMPOSSIBLE__
@@ -2321,7 +2333,11 @@ instance ToAbstract C.LHSCore (A.LHSCore' C.Expr) where
     toAbstract (C.LHSWith core wps ps) = do
       liftA3 A.LHSWith
         (toAbstract core)
-        (toAbstract wps)
+        (forM wps $ \ (Named bx e) -> do
+            e  <- toAbstract e
+            bx <- traverse (toAbstract . NewName PatternBound) bx
+            pure $ Named (mkBindName <$> bx) e
+        )
         (toAbstract ps)
 
 instance ToAbstract c a => ToAbstract (WithHiding c) (WithHiding a) where
@@ -2496,9 +2512,12 @@ instance ToAbstract C.Pattern (A.Pattern' C.Expr) where
           _ -> fallback
         _ -> fallback
 
-    toAbstract p0@(C.AbsurdP r)    = return $ A.AbsurdP (PatRange r)
-    toAbstract (C.RecP r fs)       = A.RecP (PatRange r) <$> mapM (traverse toAbstract) fs
-    toAbstract (C.WithP r p)       = A.WithP (PatRange r) <$> toAbstract p
+    toAbstract p0@(C.AbsurdP r)         = return $ A.AbsurdP (PatRange r)
+    toAbstract (C.RecP r fs)            = A.RecP (PatRange r) <$> mapM (traverse toAbstract) fs
+    toAbstract (C.WithP r (Named bx p)) = do
+      p  <- toAbstract p
+      bx <- traverse bindPatternVariable bx
+      pure $ A.WithP (PatRange r) $ Named (mkBindName <$> bx) p
 
 -- | An argument @OpApp C.Expr@ to an operator can have binders,
 --   in case the operator is some @syntax@-notation.

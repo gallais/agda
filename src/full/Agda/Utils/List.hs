@@ -13,6 +13,7 @@ import qualified Data.Set as Set
 
 import qualified Agda.Utils.Bag as Bag
 
+import Agda.Utils.Applicative ( (?*>) )
 import Agda.Utils.Tuple
 
 -- | Append a single element at the end.
@@ -158,6 +159,15 @@ spanEnd p = snd . foldr f (True, ([], []))
   f :: a -> (Bool, ([a], [a])) -> (Bool, ([a], [a]))
   f x (b', (xs, ys)) = (b, if b then (xs, x:ys) else (x:xs, ys))
     where b = b' && p x
+
+-- | A generalized version of @spanEnd@
+spanEndJust :: forall a b. (a -> Maybe b) -> [a] -> ([a], [b])
+spanEndJust p = snd . foldr f (True, ([], []))
+  where
+  f :: a -> (Bool, ([a], [b])) -> (Bool, ([a], [b]))
+  f x (go, (xs, ys))
+    | Just b <- (go ?*> p x) = (True, (xs, b:ys))
+    | otherwise              = (False, (x:xs, ys))
 
 -- | A generalized version of @takeWhile@.
 --   (Cf. @mapMaybe@ vs. @filter@).

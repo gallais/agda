@@ -37,8 +37,6 @@ import Agda.Utils.Impossible
 -- * Generic traversals
 ------------------------------------------------------------------------
 
-type NAP = NamedArg Pattern
-
 class MapNamedArgPattern a  where
   mapNamedArgPattern :: (NAP -> NAP) -> a -> a
 
@@ -293,11 +291,11 @@ instance IsWithP BindName (Pattern' e) where
     _ -> Nothing
 
 -- | Split patterns into (patterns, trailing with-patterns).
-splitOffTrailingWithPatterns :: A.Patterns -> (A.Patterns, A.Patterns)
-splitOffTrailingWithPatterns = spanEnd (isJust . isWithP)
+splitOffTrailingWithPatterns :: A.Patterns -> (A.Patterns, [A.WithT A.NAP])
+splitOffTrailingWithPatterns = spanEndJust isWithP
 
 -- | Get the tail of with-patterns of a pattern spine.
-trailingWithPatterns :: Patterns -> Patterns
+trailingWithPatterns :: Patterns -> [A.WithT A.NAP]
 trailingWithPatterns = snd . splitOffTrailingWithPatterns
 
 -- | The next patterns are ...

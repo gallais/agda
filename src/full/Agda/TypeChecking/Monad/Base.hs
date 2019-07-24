@@ -3178,7 +3178,7 @@ data TypeError
         | DuplicateFields [C.Name]
         | DuplicateConstructors [C.Name]
         | WithOnFreeVariable A.Expr Term
-        | UnexpectedWithPatterns [A.Pattern]
+        | UnexpectedWithPatterns [A.WithPattern]
         | WithClausePatternMismatch A.Pattern (NamedArg DeBruijnPattern)
         | FieldOutsideRecord
         | ModuleArityMismatch A.ModuleName Telescope [NamedArg A.Expr]

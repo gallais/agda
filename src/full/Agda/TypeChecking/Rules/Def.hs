@@ -408,7 +408,7 @@ useTerPragma def = return def
 
 -- | Insert some with-patterns into the with-clauses LHS of the given RHS.
 -- (Used for @rewrite@.)
-insertPatterns :: [A.Pattern] -> A.RHS -> A.RHS
+insertPatterns :: [A.WithPattern] -> A.RHS -> A.RHS
 insertPatterns pats = \case
   A.WithRHS aux es cs -> A.WithRHS aux es $ for cs $
     \ (A.Clause (A.LHS info core)                              spats rhs                       ds catchall) ->
@@ -419,7 +419,7 @@ insertPatterns pats = \case
 
 -- | Insert with-patterns before the trailing with patterns.
 -- If there are none, append the with-patterns.
-insertPatternsLHSCore :: [A.Pattern] -> A.LHSCore -> A.LHSCore
+insertPatternsLHSCore :: [A.WithPattern] -> A.LHSCore -> A.LHSCore
 insertPatternsLHSCore pats = \case
   A.LHSWith core wps [] -> A.LHSWith core (pats ++ wps) []
   core                  -> A.LHSWith core pats []
@@ -577,7 +577,7 @@ checkClause
 checkClause t withSub c@(A.Clause (A.SpineLHS i x aps) strippedPats rhs0 wh catchall) = do
     reportSDoc "tc.lhs.top" 30 $ "Checking clause" $$ prettyA c
     unlessNull (trailingWithPatterns aps) $ \ withPats -> do
-      typeError $ UnexpectedWithPatterns $ map namedArg withPats
+      typeError $ UnexpectedWithPatterns $ map (namedArg <$>) withPats
     traceCall (CheckClause t c) $ do
       aps <- expandPatternSynonyms aps
       cxtNames <- reverse . map (fst . unDom) <$> getContext
@@ -723,9 +723,9 @@ checkRHS i x aps t lhsResult@(LHSResult _ delta ps absurdPat trhs _ _asb _) rhs0
 
   -- With case: @f xs with a | b | c | ...; ... | ps1 = rhs1; ... | ps2 = rhs2; ...@
   -- This is mostly a wrapper around @checkWithRHS@
-  withRHS :: QName       -- ^ name of the with-function
-          -> [A.Expr]    -- ^ @[a, b, c, ...]@
-          -> [A.Clause]  -- ^ @[(ps1 = rhs1), (ps2 = rhs), ...]@
+  withRHS :: QName           -- ^ name of the with-function
+          -> [A.WithExpr]    -- ^ @[a, b, c, ...]@
+          -> [A.Clause]      -- ^ @[(ps1 = rhs1), (ps2 = rhs), ...]@
           -> TCM (Maybe Term, WithFunctionProblem)
   withRHS aux es cs = do
 
@@ -742,14 +742,15 @@ checkRHS i x aps t lhsResult@(LHSResult _ delta ps absurdPat trhs _ _asb _) rhs0
           ]
 
     -- Infer the types of the with expressions
-    (vs0, as) <- unzip <$> mapM inferExprForWith es
+    vas0 <- mapM (traverse inferExprForWith) es
+    let vas = map (fmap (fmap OtherType)) vas0
 
     -- Andreas, 2016-01-23, Issue #1796
     -- Run the size constraint solver to improve with-abstraction
     -- in case the with-expression contains size metas.
     solveSizeConstraints DefaultToInfty
 
-    checkWithRHS x aux t lhsResult vs0 (map OtherType as) cs
+    checkWithRHS x aux t lhsResult vas cs
 
   -- Rewrite case: f xs (rewrite / invert) a | b | c | ...
   rewriteEqnsRHS :: [A.RewriteEqn] -> [A.ProblemEq] -> A.RHS -> A.WhereDeclarations -> TCM (Maybe Term, WithFunctionProblem)
@@ -761,8 +762,8 @@ checkRHS i x aps t lhsResult@(LHSResult _ delta ps absurdPat trhs _ _asb _) rhs0
   rewriteEqnsRHS (r:rs) strippedPats rhs wh = case r of
     Rewrite ((qname, eq) : qes) ->
       rewriteEqnRHS qname eq (case qes of { [] -> rs; _ -> Rewrite qes : rs })
-    Invert ((pat, (qname, expr)) : pqes) ->
-      invertEqnRHS qname pat expr (case pqes of { [] -> rs; _ -> Invert pqes : rs })
+    Invert (Named nm (pat, (qname, expr)) : pqes) ->
+      invertEqnRHS nm qname pat expr (case pqes of { [] -> rs; _ -> Invert pqes : rs })
     -- Invariant: these lists are non-empty
     Rewrite [] -> __IMPOSSIBLE__
     Invert [] -> __IMPOSSIBLE__
@@ -770,12 +771,12 @@ checkRHS i x aps t lhsResult@(LHSResult _ delta ps absurdPat trhs _ _asb _) rhs0
     where
 
     -- @invert@ clauses
-    invertEqnRHS :: QName -> A.Pattern -> A.Expr
+    invertEqnRHS :: Maybe A.BindName -> QName -> A.Pattern -> A.Expr
                  -> [A.RewriteEqn] -> TCM (Maybe Term, WithFunctionProblem)
-    invertEqnRHS qname pat expr rs = do
+    invertEqnRHS nm qname pat expr rs = do
 
       (withExpr, ty) <- inferExpr expr
-      let pats     = [pat]
+      let pats     = [Named nm pat]
       let withType = OtherType ty
 
       -- Andreas, 2016-04-14, see also Issue #1796
@@ -796,7 +797,7 @@ checkRHS i x aps t lhsResult@(LHSResult _ delta ps absurdPat trhs _ _asb _) rhs0
         [ text "invert"
         , "  rhs' = " <> (text . show) rhs'
         ]
-      checkWithRHS x qname t lhsResult [withExpr] [withType] [cl]
+      checkWithRHS x qname t lhsResult [Named nm (withExpr, withType)] [cl]
 
     -- @rewrite@ clauses
     rewriteEqnRHS :: QName -> A.Expr
@@ -874,8 +875,8 @@ checkRHS i x aps t lhsResult@(LHSResult _ delta ps absurdPat trhs _ _asb _) rhs0
 
       (pats, withExpr, withType) <- do
         ifM isReflexive
-          {-then-} (return ([ reflPat ], proof, OtherType t'))
-          {-else-} (return ([ A.WildP patNoRange, reflPat ], proof, eqt))
+          {-then-} (return (unnamed <$>  [ reflPat ], proof, OtherType t'))
+          {-else-} (return (unnamed <$> [ A.WildP patNoRange, reflPat ], proof, eqt))
 
       let rhs' = insertPatterns pats rhs
           (rhs'', outerWhere) -- the where clauses should go on the inner-most with
@@ -890,30 +891,29 @@ checkRHS i x aps t lhsResult@(LHSResult _ delta ps absurdPat trhs _ _asb _) rhs0
         [ text "rewrite"
         , "  rhs' = " <> (text . show) rhs'
         ]
-      checkWithRHS x qname t lhsResult [withExpr] [withType] [cl]
+      checkWithRHS x qname t lhsResult [unnamed (withExpr, withType)] [cl]
 
 checkWithRHS
-  :: QName                   -- ^ Name of function.
-  -> QName                   -- ^ Name of the with-function.
-  -> Type                    -- ^ Type of function.
-  -> LHSResult               -- ^ Result of type-checking patterns
-  -> [Term]                  -- ^ With-expressions.
-  -> [EqualityView]          -- ^ Types of with-expressions.
-  -> [A.Clause]              -- ^ With-clauses to check.
+  :: QName                           -- ^ Name of function.
+  -> QName                           -- ^ Name of the with-function.
+  -> Type                            -- ^ Type of function.
+  -> LHSResult                       -- ^ Result of type-checking patterns
+  -> [A.WithT (Term, EqualityView)]  -- ^ Terms and Types of with-expressions.
+  -> [A.Clause]                      -- ^ With-clauses to check.
   -> TCM (Maybe Term, WithFunctionProblem)
                                 -- Note: as-bindings already bound (in checkClause)
-checkWithRHS x aux t (LHSResult npars delta ps _absurdPat trhs _ _asb _) vs0 as cs =
+checkWithRHS x aux t (LHSResult npars delta ps _absurdPat trhs _ _asb _) vas0 cs =
   Bench.billTo [Bench.Typing, Bench.With] $ do
-        let withArgs = withArguments vs0 as
+        let withArgs = withArguments vas0
             perm = fromMaybe __IMPOSSIBLE__ $ dbPatPerm ps
-        (vs, as)  <- normalise (vs0, as)
+        vas <- normalise vas0
 
         -- Andreas, 2012-09-17: for printing delta,
         -- we should remove it from the context first
         reportSDoc "tc.with.top" 25 $ escapeContext (size delta) $ vcat
           [ "delta  =" <+> prettyTCM delta
           ]
-        reportSDoc "tc.with.top" 25 $ vcat
+        reportSDoc "tc.with.top" 25 $ let (vs, as) = unzip $ map namedThing vas in vcat
           [ "vs     =" <+> prettyTCM vs
           , "as     =" <+> prettyTCM as
           , "perm   =" <+> text (show perm)
@@ -921,8 +921,8 @@ checkWithRHS x aux t (LHSResult npars delta ps _absurdPat trhs _ _asb _) vs0 as 
 
         -- Split the telescope into the part needed to type the with arguments
         -- and all the other stuff
-        (delta1, delta2, perm', t', as, vs) <- return $
-          splitTelForWith delta (unArg trhs) as vs
+        (delta1, delta2, perm', t', vas) <- return $
+          splitTelForSubst delta (unArg trhs) vas
         let finalPerm = composeP perm' perm
 
         reportSLn "tc.with.top" 75 $ "delta  = " ++ show delta
