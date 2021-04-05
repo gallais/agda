@@ -24,7 +24,7 @@ import Agda.TypeChecking.Monad.MetaVars
 import Agda.TypeChecking.Monad.Options
 import Agda.TypeChecking.Monad.Debug
 import Agda.TypeChecking.Monad.State ( getScope )
-import Agda.TypeChecking.Monad ( localTCState )
+import Agda.TypeChecking.Monad ( localTCState, setCurrentRange )
 import Agda.TypeChecking.Positivity () --instance only
 import Agda.TypeChecking.Pretty
 import Agda.TypeChecking.Pretty.Call
@@ -420,7 +420,7 @@ filterTCWarnings = \case
 tcWarningsToError :: [TCWarning] -> TCM ()
 tcWarningsToError mws = case (unsolvedHoles, otherWarnings) of
    ([], [])                   -> return ()
-   (_unsolvedHoles@(_:_), []) -> typeError SolvedButOpenHoles
+   (_unsolvedHoles@(_:_), []) -> setCurrentRange unsolvedHoles $ typeError SolvedButOpenHoles
    (_, ws@(_:_))              -> typeError $ NonFatalErrors ws
    where
    -- filter out unsolved interaction points for imported module so
