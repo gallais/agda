@@ -32,6 +32,8 @@ import Agda.TypeChecking.Records (getRecordConstructor)
 import Agda.TypeChecking.Reduce
 import Agda.TypeChecking.Substitute
 
+import Agda.Compiler.StaticRewriteRules
+
 import Agda.Compiler.Treeless.AsPatterns
 import Agda.Compiler.Treeless.Builtin
 import Agda.Compiler.Treeless.Erase
@@ -77,35 +79,35 @@ getCompiledClauses q = do
 -- term for identification purposes! If you wish to do so,
 -- first apply the Agda.Compiler.Treeless.NormalizeNames
 -- transformation.
-toTreeless :: EvaluationStrategy -> QName -> TCM (Maybe C.TTerm)
-toTreeless eval q = ifM (alwaysInline q) (pure Nothing) $ Just <$> toTreeless' eval q
+toTreeless :: EvaluationStrategy -> RewriteStrategy -> QName -> TCM (Maybe C.TTerm)
+toTreeless eval rewr q = ifM (alwaysInline q) (pure Nothing) $ Just <$> toTreeless' eval rewr q
 
-toTreeless' :: EvaluationStrategy -> QName -> TCM C.TTerm
-toTreeless' eval q =
+toTreeless' :: EvaluationStrategy -> RewriteStrategy -> QName -> TCM C.TTerm
+toTreeless' eval rewr q =
   flip fromMaybeM (getTreeless q) $ verboseBracket "treeless.convert" 20 ("compiling " ++ prettyShow q) $ do
     cc <- getCompiledClauses q
     unlessM (alwaysInline q) $ setTreeless q (C.TDef q)
       -- so recursive inlining doesn't loop, but not for always inlined
       -- functions, since that would risk inlining to fail.
-    ccToTreeless eval q cc
+    ccToTreeless eval rewr q cc
 
 -- | Does not require the name to refer to a function.
-cacheTreeless :: EvaluationStrategy -> QName -> TCM ()
-cacheTreeless eval q = do
+cacheTreeless :: EvaluationStrategy -> RewriteStrategy -> QName -> TCM ()
+cacheTreeless eval rewr q = do
   def <- theDef <$> getConstInfo q
   case def of
-    Function{} -> () <$ toTreeless' eval q
+    Function{} -> () <$ toTreeless' eval rewr q
     _          -> return ()
 
-ccToTreeless :: EvaluationStrategy -> QName -> CC.CompiledClauses -> TCM C.TTerm
-ccToTreeless eval q cc = do
+ccToTreeless :: EvaluationStrategy -> RewriteStrategy -> QName -> CC.CompiledClauses -> TCM C.TTerm
+ccToTreeless eval rewr q cc = do
   let pbody b = pbody' "" b
       pbody' suf b = sep [ text (prettyShow q ++ suf) <+> "=", nest 2 $ prettyPure b ]
   v <- ifM (alwaysInline q) (return 20) (return 0)
   reportSDoc "treeless.convert" (30 + v) $ "-- compiled clauses of" <+> prettyTCM q $$ nest 2 (prettyPure cc)
-  body <- casetreeTop eval cc
+  body <- casetreeTop eval rewr cc
   reportSDoc "treeless.opt.converted" (30 + v) $ "-- converted" $$ pbody body
-  body <- runPipeline eval q (compilerPipeline v q) body
+  body <- runPipeline eval rewr q (compilerPipeline v q) body
   used <- usedArguments q body
   when (ArgUnused `elem` used) $
     reportSDoc "treeless.opt.unused" (30 + v) $
@@ -127,7 +129,9 @@ data CompilerPass = CompilerPass
   , passCode      :: EvaluationStrategy -> TTerm -> TCM TTerm
   }
 
-compilerPass :: String -> Int -> String -> (EvaluationStrategy -> TTerm -> TCM TTerm) -> Pipeline
+compilerPass :: String -> Int -> String
+             -> (EvaluationStrategy -> TTerm -> TCM TTerm)
+             -> Pipeline
 compilerPass tag v name code = SinglePass (CompilerPass tag v name code)
 
 compilerPipeline :: Int -> QName -> Pipeline
@@ -148,14 +152,14 @@ compilerPipeline v q =
     , compilerPass "id" (30 + v) "identity function detection" $ const (detectIdentityFunctions q)
     ]
 
-runPipeline :: EvaluationStrategy -> QName -> Pipeline -> TTerm -> TCM TTerm
-runPipeline eval q pipeline t = case pipeline of
-  SinglePass p   -> runCompilerPass eval q p t
-  Sequential ps  -> foldM (flip $ runPipeline eval q) t ps
-  FixedPoint n p -> runFixedPoint n eval q p t
+runPipeline :: EvaluationStrategy -> RewriteStrategy -> QName -> Pipeline -> TTerm -> TCM TTerm
+runPipeline eval rewr q pipeline t = case pipeline of
+  SinglePass p   -> runCompilerPass eval rewr q p t
+  Sequential ps  -> foldM (flip $ runPipeline eval rewr q) t ps
+  FixedPoint n p -> runFixedPoint n eval rewr q p t
 
-runCompilerPass :: EvaluationStrategy -> QName -> CompilerPass -> TTerm -> TCM TTerm
-runCompilerPass eval q p t = do
+runCompilerPass :: EvaluationStrategy -> RewriteStrategy -> QName -> CompilerPass -> TTerm -> TCM TTerm
+runCompilerPass eval rewr q p t = do
   t' <- passCode p eval t
   let dbg f   = reportSDoc ("treeless.opt." ++ passTag p) (passVerbosity p) $ f $ text ("-- " ++ passName p)
       pbody b = sep [ text (prettyShow q) <+> "=", nest 2 $ prettyPure b ]
@@ -163,23 +167,24 @@ runCompilerPass eval q p t = do
            | otherwise -> ($$ pbody t')
   return t'
 
-runFixedPoint :: Int -> EvaluationStrategy -> QName -> Pipeline -> TTerm -> TCM TTerm
-runFixedPoint n eval q pipeline = go 1
+runFixedPoint :: Int -> EvaluationStrategy -> RewriteStrategy -> QName -> Pipeline -> TTerm -> TCM TTerm
+runFixedPoint n eval rewr q pipeline = go 1
   where
     go i t | i > n = do
       reportSLn "treeless.opt.loop" 20 $ "++ Optimisation loop reached maximum iterations (" ++ show n ++ ")"
       return t
     go i t = do
       reportSLn "treeless.opt.loop" 30 $ "++ Optimisation loop iteration " ++ show i
-      t' <- runPipeline eval q pipeline t
+      t' <- runPipeline eval rewr q pipeline t
       if | t == t'   -> do
             reportSLn "treeless.opt.loop" 30 $ "++ Optimisation loop terminating after " ++ show i ++ " iterations"
             return t'
          | otherwise -> go (i + 1) t'
 
-closedTermToTreeless :: EvaluationStrategy -> I.Term -> TCM C.TTerm
-closedTermToTreeless eval t = do
-  substTerm t `runReaderT` initCCEnv eval
+closedTermToTreeless :: EvaluationStrategy -> RewriteStrategy -> I.Term -> TCM C.TTerm
+closedTermToTreeless eval rewr t = do
+  t <- staticRewrites rewr t
+  substTerm t `runReaderT` initCCEnv eval rewr
 
 alwaysInline :: QName -> TCM Bool
 alwaysInline q = do
@@ -191,11 +196,12 @@ alwaysInline q = do
     _ -> False
 
 -- | Initial environment for expression generation.
-initCCEnv :: EvaluationStrategy -> CCEnv
-initCCEnv eval = CCEnv
+initCCEnv :: EvaluationStrategy -> RewriteStrategy -> CCEnv
+initCCEnv eval rewr = CCEnv
   { ccCxt        = []
   , ccCatchAll   = Nothing
   , ccEvaluation = eval
+  , ccRewrite = rewr
   }
 
 -- | Environment for naming of local variables.
@@ -204,6 +210,7 @@ data CCEnv = CCEnv
   , ccCatchAll   :: Maybe Int  -- ^ TTerm de-bruijn index of the current catch all
   -- If an inner case has no catch-all clause, we use the one from its parent.
   , ccEvaluation :: EvaluationStrategy
+  , ccRewrite :: RewriteStrategy
   }
 
 type CCContext = [Int]
@@ -225,8 +232,8 @@ lookupLevel :: Int -- ^ case tree de bruijn level
 lookupLevel l xs = fromMaybe __IMPOSSIBLE__ $ xs !!! (length xs - 1 - l)
 
 -- | Compile a case tree into nested case and record expressions.
-casetreeTop :: EvaluationStrategy -> CC.CompiledClauses -> TCM C.TTerm
-casetreeTop eval cc = flip runReaderT (initCCEnv eval) $ do
+casetreeTop :: EvaluationStrategy -> RewriteStrategy -> CC.CompiledClauses -> TCM C.TTerm
+casetreeTop eval rewr cc = flip runReaderT (initCCEnv eval rewr) $ do
   let a = commonArity cc
   lift $ reportSLn "treeless.convert.arity" 40 $ "-- common arity: " ++ show a
   lambdasUpTo a $ casetree cc
@@ -240,7 +247,8 @@ casetree cc = do
       -- if some arguments are not used in the body.
       v <- lift (putAllowedReductions (SmallSet.fromList [ProjectionReductions, CopatternReductions]) $ normalise v)
       cxt <- asks ccCxt
-      v' <- substTerm v
+      rewr <- asks ccRewrite
+      v' <- substTerm =<< staticRewrites rewr v
       reportS "treeless.convert.casetree" 40 $
         [ "-- casetree, calling substTerm:"
         , "--   cxt =" <+> prettyPure cxt
@@ -580,12 +588,13 @@ normaliseStatic v = pure v
 maybeInlineDef :: I.QName -> I.Args -> CC C.TTerm
 maybeInlineDef q vs = do
   eval <- asks ccEvaluation
-  ifM (lift $ alwaysInline q) (doinline eval) $ do
-    lift $ cacheTreeless eval q
+  rewr <- asks ccRewrite
+  ifM (lift $ alwaysInline q) (doinline eval rewr) $ do
+    lift $ cacheTreeless eval rewr q
     def <- lift $ getConstInfo q
     case theDef def of
       fun@Function{}
-        | fun ^. funInline -> doinline eval
+        | fun ^. funInline -> doinline eval rewr
         | otherwise -> do
         -- If ArgUsage hasn't been computed yet, we assume all arguments are used.
         used <- lift $ fromMaybe [] <$> getCompiledArgUse q
@@ -594,8 +603,8 @@ maybeInlineDef q vs = do
         C.mkTApp (C.TDef q) <$> zipWithM substUsed vs (used ++ repeat ArgUsed)
       _ -> C.mkTApp (C.TDef q) <$> substArgs vs
   where
-    doinline eval = C.mkTApp <$> inline eval q <*> substArgs vs
-    inline eval q = lift $ toTreeless' eval q
+    doinline eval rewr = C.mkTApp <$> inline eval rewr q <*> substArgs vs
+    inline eval rewr q = lift $ toTreeless' eval rewr q
 
 substArgs :: [Arg I.Term] -> CC [C.TTerm]
 substArgs = traverse substArg

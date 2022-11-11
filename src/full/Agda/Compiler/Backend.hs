@@ -6,6 +6,7 @@
 module Agda.Compiler.Backend
   ( Backend(..), Backend'(..), Recompile(..), IsMain(..)
   , Flag
+  , staticRewrites
   , toTreeless
   , module Agda.Syntax.Treeless
   , module Agda.TypeChecking.Monad
@@ -60,6 +61,7 @@ import Agda.Utils.IndexedList
 import Agda.Utils.Lens
 import Agda.Utils.Monad
 
+import Agda.Compiler.StaticRewriteRules
 import Agda.Compiler.ToTreeless
 import Agda.Compiler.Common
 

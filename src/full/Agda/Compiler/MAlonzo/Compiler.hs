@@ -40,6 +40,7 @@ import Agda.Compiler.MAlonzo.Primitives
 import Agda.Compiler.MAlonzo.HaskellTypes
 import Agda.Compiler.MAlonzo.Pragmas
 import Agda.Compiler.MAlonzo.Strict
+import Agda.Compiler.StaticRewriteRules
 import Agda.Compiler.ToTreeless
 import Agda.Compiler.Treeless.Unused
 import Agda.Compiler.Treeless.Erase
@@ -789,7 +790,7 @@ definition def@Defn{defName = q, defType = ty, theDef = d} = do
   functionViaTreeless q = do
     strict <- optGhcStrict <$> askGhcOpts
     let eval = if strict then EagerEvaluation else LazyEvaluation
-    caseMaybeM (liftTCM $ toTreeless eval q) (pure mempty) $ \ treeless -> do
+    caseMaybeM (liftTCM $ toTreeless eval YesStaticRewrites q) (pure mempty) $ \ treeless -> do
 
       used <- fromMaybe [] <$> getCompiledArgUse q
       let dostrip = ArgUnused `elem` used

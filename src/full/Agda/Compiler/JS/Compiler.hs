@@ -62,6 +62,7 @@ import Agda.Utils.Singleton ( singleton )
 import Agda.Utils.Size (size)
 
 import Agda.Compiler.Common as CC
+import Agda.Compiler.StaticRewriteRules
 import Agda.Compiler.ToTreeless
 import Agda.Compiler.Treeless.EliminateDefaults
 import Agda.Compiler.Treeless.EliminateLiteralPatterns
@@ -419,7 +420,7 @@ definition' kit q d t ls =
     Function{} | otherwise -> do
 
       reportSDoc "compile.js" 5 $ "compiling fun:" <+> prettyTCM q
-      caseMaybeM (toTreeless T.EagerEvaluation q) (pure Nothing) $ \ treeless -> do
+      caseMaybeM (toTreeless T.EagerEvaluation YesStaticRewrites q) (pure Nothing) $ \ treeless -> do
         used <- fromMaybe [] <$> getCompiledArgUse q
         funBody <- eliminateCaseDefaults =<<
           eliminateLiteralPatterns
